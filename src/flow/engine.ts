@@ -57,7 +57,7 @@ export interface FlowParams {
   stayMinutes: [number, number]
 }
 
-export const DEFAULT_FLOW: FlowParams = { stepMinutes: 30, wardSize: 12, admitShareAcuity3: 0.35, stayMinutes: [60, 180] }
+export const DEFAULT_FLOW: FlowParams = { stepMinutes: 30, wardSize: 12, admitShareAcuity3: 0.25, stayMinutes: [60, 180] }
 
 export interface FlowState extends BoardState {
   patients: FlowPerson[]
@@ -67,6 +67,8 @@ export interface FlowState extends BoardState {
   paused: boolean
   /** Whether letters are drafted by the model or the canned fallback (shown on screen). */
   drafts?: 'model' | 'canned'
+  /** live = the shared NHS-SIM world; offline = the local stand-in with verified timings (src/flow/offline.ts). */
+  mode?: 'live' | 'offline'
   arrivals: number
   writes: number
   errors: number

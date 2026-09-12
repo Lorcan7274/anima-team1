@@ -175,3 +175,28 @@ test('flow page browser script parses', () => {
   assert.ok(script)
   assert.doesNotThrow(() => new vm.Script(script!))
 })
+
+test('offline stand-in: the two lanes diverge after people become fit, with no failed actions', async () => {
+  const { offlineSim } = await import('../src/flow/offline.ts')
+  const { counters } = await import('../src/flow/engine.ts')
+  const sim = offlineSim('test-seed')
+  const state = newFlowState('offline-test')
+  state.mode = 'offline'
+  state.simNow = sim.nowMs
+  state.startedAt = sim.nowMs
+  const ctx: FlowCtx = { sim, state, log: () => {} }
+  for (let i = 0; i < 40; i++) await tick(ctx) // 20 simulated hours
+  const c = counters(state, modelLane(state, state.simNow))
+  assert.equal(state.errors, 0, 'no action ever fails against the stand-in')
+  assert.ok(state.arrivals > 60, `arrivals ${state.arrivals}`)
+  assert.ok(c.homeFromWard >= 3, `ward discharges ${c.homeFromWard}`)
+  // The manual ward holds beds for a day or more, so it saturates and queues people on the take;
+  // Homeward's ward turns beds over and sends more people home.
+  assert.ok(c.modelOccupied >= c.occupied, `model beds ${c.modelOccupied} vs agent ${c.occupied}`)
+  assert.ok(c.modelWaitingForBed > c.waitingForBed, `model queue ${c.modelWaitingForBed} vs agent ${c.waitingForBed}`)
+  assert.ok(c.home > c.modelHome, `home ${c.home} vs model ${c.modelHome}`)
+  assert.ok(c.bedHoursSaved > 0)
+  // Every verified item was verified by the real verifier against the stand-in's timed resources.
+  const verified = state.patients.flatMap((p) => p.items).filter((i) => i.state === 'verified')
+  assert.ok(verified.every((i) => i.verification?.passed && i.resolution?.resourceId))
+})

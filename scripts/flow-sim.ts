@@ -9,7 +9,8 @@
  *   node scripts/flow-sim.ts --step 30 --beds 12  # sim-minutes per tick, ward size
  *   node scripts/flow-sim.ts --stay 60-240        # assumed treatment stay before fit, sim-minutes (default 60-180)
  *   node scripts/flow-sim.ts --llm                # let the model draft letters (slower; default: canned drafts)
- *   node scripts/flow-sim.ts --replay             # no simulator: animate flow-state.json
+ *   node scripts/flow-sim.ts --offline            # no simulator: local stand-in with verified timings (never stalls)
+ *   node scripts/flow-sim.ts --replay             # no simulator: show the last flow-state.json
  *   node scripts/flow-sim.ts --port 4701          # serve the screen elsewhere (default 4700)
  *
  * Every tick is written to flow-state.json so --replay can run the screen
@@ -17,6 +18,8 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { joinWorld } from '../src/orchestrator/world.ts'
+import { offlineSim } from './../src/flow/offline.ts'
+import type { SimClient } from '../src/sim/index.ts'
 import { DEFAULT_FLOW, newFlowState, tick, type FlowState } from '../src/flow/engine.ts'
 import { startFlowUi } from '../src/flow/ui.ts'
 
@@ -42,15 +45,20 @@ if (flag('replay')) {
     wardSize: Number(arg('beds') ?? DEFAULT_FLOW.wardSize),
     stayMinutes: (stay.length === 2 && stay.every((n) => n > 0) ? [stay[0], stay[1]] : DEFAULT_FLOW.stayMinutes) as [number, number],
   }
-  const worldName = arg('world') ?? `discharge-flow-${Math.random().toString(16).slice(2, 14)}`
+  const offline = flag('offline')
+  const worldName = arg('world') ?? (offline ? `offline-${Math.random().toString(16).slice(2, 10)}` : `discharge-flow-${Math.random().toString(16).slice(2, 14)}`)
   const state = newFlowState(worldName, params)
-  state.drafts = flag('llm') ? 'model' : 'canned'
+  state.drafts = flag('llm') && !offline ? 'model' : 'canned'
+  state.mode = offline ? 'offline' : 'live'
+  if (offline) delete process.env.OPENAI_API_KEY
   startFlowUi(state, { port: Number(arg('port') ?? 4700) })
-  console.log(`flow world: ${worldName}`)
-  const { sim } = await joinWorld(worldName, (entry) => {
-    state.trace!.push(entry)
-    if (state.trace!.length > 400) state.trace!.shift()
-  })
+  console.log(offline ? `offline stand-in (seed ${worldName})` : `flow world: ${worldName}`)
+  const sim: SimClient = offline
+    ? offlineSim(worldName)
+    : (await joinWorld(worldName, (entry) => {
+        state.trace!.push(entry)
+        if (state.trace!.length > 400) state.trace!.shift()
+      })).sim
   const log = (m: string) => { state.log.push(m); if (state.log.length > 400) state.log.shift(); console.log(`  ${m}`) }
   state.simNow = Number((await sim.clock()).now)
   state.startedAt = state.simNow
@@ -76,6 +84,6 @@ if (flag('replay')) {
       log(state.phase)
       await new Promise((r) => setTimeout(r, Math.min(failures * 5, 30) * 1000))
     }
-    await new Promise((r) => setTimeout(r, Number(arg('pause-ms') ?? 1500))) // let the page breathe between ticks
+    await new Promise((r) => setTimeout(r, Number(arg('pause-ms') ?? (offline ? 2500 : 1500)))) // let the page breathe between ticks
   }
 }

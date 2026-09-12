@@ -91,7 +91,8 @@ npm run flow                              # new world, screen on http://localhos
 npm run flow -- --step 30 --beds 12       # sim-minutes per tick, ward size (defaults)
 npm run flow -- --stay 60-240             # assumed treatment stay before fit, sim-minutes (default 60-180)
 npm run flow -- --llm                     # let the model draft the letters (slower)
-npm run flow:replay                       # no simulator: animate the last flow-state.json (add -- --port 4701 to run beside a live one)
+npm run flow -- --offline                 # no simulator: local stand-in with the verified timings, never stalls (use this at the stall if the sim is slow)
+npm run flow:replay                       # no simulator: show the last flow-state.json (add -- --port 4701 to run beside a live one)
 ```
 
 The screen shows two journeys with the same arrivals: **With Homeward** (the live
@@ -100,7 +101,7 @@ world) and **Today's ward** (the illustrative manual-working model in
 beds occupied, waiting for a bed vs the model, home, median door-to-home, bed-hours
 saved vs the model. The page states what is real and what is assumed: nobody in the
 simulator gets better on their own, so treatment before "medically fit" is a seeded
-1–3 h stay; acuity 1–2 are admitted and 35% of acuity 3; the ward has 12 beds.
+1–3 h stay; acuity 1–2 are admitted and 25% of acuity 3; the ward has 12 beds.
 Every tick is written to `flow-state.json` for `--replay`.
 
 ### Offline fallback

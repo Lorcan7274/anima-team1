@@ -51,6 +51,7 @@ export const FLOW_PAGE = `<!doctype html>
   .lane-head .tag{font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:2px 6px}
   .tag.live{background:rgba(12,163,12,.10);color:#0a7a0a}
   .tag.model{background:#efeeea;color:#5c5a55}
+  .tag.sim{background:var(--accent-soft);color:var(--accent)}
   .lane-head .mini{margin-left:auto;font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;display:flex;gap:14px}
   .lane-head .mini b{font-weight:530;color:var(--ink)}
   .journey{position:relative;height:250px;margin-top:10px}
@@ -100,7 +101,7 @@ export const FLOW_PAGE = `<!doctype html>
   <div class="clock" id="clock">—<small id="clockSub">sim time since start</small></div>
 </div>
 <div class="lane">
-  <div class="lane-head"><h2>With Homeward</h2><span class="tag live">live simulator world</span>
+  <div class="lane-head"><h2>With Homeward</h2><span class="tag live" id="modeTag">live simulator world</span>
     <span class="mini" id="miniAgent"></span></div>
   <div class="journey" id="laneAgent"></div>
 </div>
@@ -205,9 +206,8 @@ function layoutLane(laneId, people, stageOf, bedOf, W, now, live) {
       const fit = inWard && live && p.fitAt !== undefined && now >= p.fitAt
       el.className = 'fig ' + (s.key === 'home' ? 'home' : inWard ? (fit ? 'fit' : 'ward') : s.key === 'take' ? 'take' : 'ae')
       const dots = el.querySelector('.dots')
-      if (inWard) {
-        // Same dots on both lanes; only the live lane's ever change colour.
-        dots.innerHTML = (p.items || []).map((i) => '<i class="' + (!live ? '' : i.state === 'verified' ? 'ok' : i.state === 'failed' ? 'bad' : (i.state === 'awaiting_verification' || i.state === 'resolving') ? 'on' : '') + '"></i>').join('')
+      if (inWard && live) {
+        dots.innerHTML = (p.items || []).map((i) => '<i class="' + (i.state === 'verified' ? 'ok' : i.state === 'failed' ? 'bad' : (i.state === 'awaiting_verification' || i.state === 'resolving') ? 'on' : '') + '"></i>').join('')
       } else dots.innerHTML = ''
       el.querySelector('.badge')?.remove()
       if (live && p.error && s.key !== 'home') el.insertAdjacentHTML('beforeend', '<span class="badge"></span>')
@@ -234,6 +234,9 @@ function render(s) {
   const W = s.params.wardSize
   document.getElementById('clock').innerHTML = (s.startedAt ? '+' + rel(s.simNow, s.startedAt) : '—') + '<small id="clockSub">sim time since start · tick ' + s.tick + ' · ' + s.params.stepMinutes + ' sim-min per tick</small>'
   document.getElementById('pauseBtn').textContent = s.paused ? 'Resume' : 'Pause'
+  const mt = document.getElementById('modeTag')
+  if (s.mode === 'offline') { mt.className = 'tag sim'; mt.textContent = 'simulated · verified simulator timings'; mt.title = 'Local stand-in for the simulator: results 120 min, visits 90, watch reading 10, letters and tasks at once' }
+  else { mt.className = 'tag live'; mt.textContent = 'live simulator world' }
   // Any timed-out or failed simulator call in the recent trace, or a person whose last action failed.
   const timingOut = (s.trace || []).slice(-12).some((t) => !t.ok) || (s.patients || []).some((p) => p.error && p.flow !== 'home')
   document.getElementById('warn').style.display = timingOut ? '' : 'none'
