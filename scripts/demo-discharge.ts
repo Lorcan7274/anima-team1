@@ -6,6 +6,7 @@
  *   node scripts/demo-discharge.ts --detect-only       # read-only checklist
  *   node scripts/demo-discharge.ts --no-ui             # skip the ward-list server
  *   node scripts/demo-discharge.ts --approve           # auto-approve the plan (headless)
+ *   node scripts/demo-discharge.ts --ward              # also track the two seeded inpatients (SIM-000007/8)
  *
  * With the UI up and no --approve, the runner WAITS for the "Approve plan"
  * click — that is the staff-approval demo beat. Board snapshots are written to
@@ -26,6 +27,8 @@ const flag = (name: string) => process.argv.includes(`--${name}`)
 
 const AMIRA = 'SIM-000001'
 const ELEANOR = 'SIM-000006'
+/** Seeded already-inpatient attendances (AMU beds 2 and 3): extra live-detected rows at zero setup cost. */
+const WARD_EXTRAS = ['SIM-000007', 'SIM-000008']
 
 const worldName = arg('world') ?? randomWorldName()
 console.log(`world: ${worldName}`)
@@ -75,13 +78,23 @@ board.log.push('Amira admitted to AMU bed 12')
 phase('Admitting Eleanor to AMU bed 1')
 await withRetry('Admitting Eleanor', () => admitToWard(sim, ELEANOR, 'AMU bed 1'))
 board.log.push('Eleanor admitted to AMU bed 1')
-// TODO(team): optionally registerAndAdmit() 2-4 directory patients for ward size.
+// --ward: the seeded inpatients cost only reads (already past 'inpatient'); their
+// items are detected live and resolved like everyone else's once approved.
+const cohort = flag('ward') ? [AMIRA, ELEANOR, ...WARD_EXTRAS] : [AMIRA, ELEANOR]
+if (flag('ward')) {
+  for (const id of WARD_EXTRAS) {
+    phase(`Confirming ${id} is on the ward`)
+    await withRetry(`Confirming ${id}`, () => admitToWard(sim, id, 'AMU'))
+  }
+}
 
 // --- Board + detection ------------------------------------------------------
 phase('Loading patient records from the simulator')
-const built = await withRetry('Loading records', () => buildBoard(sim, world, [AMIRA, ELEANOR]))
+const built = await withRetry('Loading records', () => buildBoard(sim, world, cohort))
 board.patients.push(...built.patients)
 board.simNow = built.simNow
+// t=0 for the story panel: the cohort is deemed fit now; a restored snapshot keeps its own.
+board.fitAt = built.simNow
 
 // Safe re-run: restore item state from the last snapshot when it is the SAME
 // world. Settled items stay settled, so nothing is re-resolved or duplicated.
@@ -91,8 +104,9 @@ if (existsSync('fallback-board.json')) {
     if (snap.world === world) {
       for (const sp of snap.patients ?? []) {
         const row = board.patients.find((p) => p.patientId === sp.patientId)
-        if (row) { row.items = sp.items ?? []; row.insights = sp.insights }
+        if (row) { row.items = sp.items ?? []; row.insights = sp.insights; row.dischargedAt = sp.dischargedAt }
       }
+      if (snap.fitAt) board.fitAt = snap.fitAt
       board.log = [...(snap.log ?? []), '(state restored from snapshot — safe re-run)']
       console.log('restored prior state for this world from fallback-board.json')
     }
@@ -159,8 +173,11 @@ if (flag('detect-only')) {
   // --- Finale: discharge whoever is fully green ------------------------------
   phase('Discharging ready patients in the hospital EPR')
   for (const p of board.patients) {
+    if (p.stage === 'discharged') continue
     if (readyForDischarge(p)) {
       await dischargeAttendance(sim, p.patientId, 'Home with community support and monitoring')
+      p.stage = 'discharged'
+      p.dischargedAt = board.simNow
       ctx.log(`DISCHARGED ${p.name}`)
     } else {
       const open = p.items.filter((i) => i.state !== 'verified')

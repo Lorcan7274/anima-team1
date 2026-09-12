@@ -89,11 +89,47 @@ const resolveSummary: Resolver = async (ctx, item) => {
     { type: 'process_document', patientId: item.patientId, resourceId: saved.id, expectedVersion: saved.version, documentCommand: 'send' },
     key(ctx, item, 'send'),
   )
-  // TODO(team): share_record to community for the summary + the seeded r-1 document (UNTESTED).
-  return { action: 'save_discharge_summary+send', resourceId: saved.id, idempotencyKey: key(ctx, item, 'save'), atSimTime: await simNow(ctx) }
+  // Cross-service beat, verified live: the hospital-only admission document the
+  // evidence quotes becomes visible to the community team. The summary itself
+  // cannot be shared this way (the sim answers 409 "use the document workflow"),
+  // it reaches the GP through 'send'. Best-effort: a failure is logged, not fatal.
+  const shared = await shareDocumentsWithCommunity(ctx, item)
+  return {
+    action: 'save_discharge_summary+send' + (shared.length ? `+share_record(${shared.join(',')})` : ''),
+    resourceId: saved.id, alsoResourceIds: shared.length ? shared : undefined,
+    idempotencyKey: key(ctx, item, 'save'), atSimTime: await simNow(ctx),
+  }
 }
 
-/** Verified: create_task. TODO: rebook today's 08:15 in-person as telephone (UNTESTED). */
+/** share_record every hospital document the item cites to community. Returns the ids shared. */
+async function shareDocumentsWithCommunity(ctx: OrchestratorContext, item: ChecklistItem): Promise<string[]> {
+  const shared: string[] = []
+  const view = await ctx.sim.siteView('hospital', { patient: item.patientId, limit: 100 })
+  const docs = ((view.resources ?? []) as any[]).filter((r) => r.kind === 'document' && !(r.visibleTo ?? []).includes('community'))
+  for (const doc of docs) {
+    try {
+      await ctx.sim.siteAction(
+        'hospital',
+        { type: 'share_record', patientId: item.patientId, resourceId: doc.id, expectedVersion: doc.version, target: 'community' },
+        key(ctx, item, `share-${doc.id}`),
+      )
+      shared.push(doc.id)
+      ctx.log(`shared hospital document ${doc.id} with community (${item.patientId})`)
+    } catch (err) {
+      ctx.log(`share_record ${doc.id} -> community failed (non-fatal): ${String((err as Error).message).slice(0, 120)}`)
+    }
+  }
+  return shared
+}
+
+/**
+ * Verified: create_task (the resource the verifier checks). When the patient's
+ * goals say "avoid unnecessary travel", also honour them in the booking:
+ * cancel today's in-person practice appointment and book a telephone review
+ * instead (cancel_appointment -> create_appointment_session {mode: telephone}
+ * -> book_appointment, verified live). Best-effort: the task is the
+ * deliverable; a booking failure is logged and the item still resolves.
+ */
 const resolveFollowUp: Resolver = async (ctx, item) => {
   const task = await ctx.sim.createTask(
     'gp',
@@ -101,9 +137,53 @@ const resolveFollowUp: Resolver = async (ctx, item) => {
     'Post-discharge telephone review within 48h',
     key(ctx, item, 'task'),
   )
-  // TODO(team): cancel_appointment + book_appointment {mode:'telephone'} — check
-  // schemas in /api/openapi.json first, smoke-test in a scratch world.
-  return { action: 'create_task', resourceId: task.id, idempotencyKey: key(ctx, item, 'task'), atSimTime: await simNow(ctx) }
+  const row = ctx.board.patients.find((p) => p.patientId === item.patientId)
+  const avoidTravel = (row?.goals ?? []).some((g) => /avoid unnecessary travel/i.test(g))
+  const booked = avoidTravel ? await rebookAsTelephone(ctx, item) : undefined
+  return {
+    action: 'create_task' + (booked ? '+rebook_telephone' : ''),
+    resourceId: task.id, alsoResourceIds: booked ? [booked] : undefined,
+    idempotencyKey: key(ctx, item, 'task'), atSimTime: await simNow(ctx),
+  }
+}
+
+const DAY = 24 * 60 * 60_000
+
+/** Cancel today's in-person GP appointments and book a telephone slot tomorrow morning. Returns the new appointment id. */
+async function rebookAsTelephone(ctx: OrchestratorContext, item: ChecklistItem): Promise<string | undefined> {
+  const P = item.patientId
+  try {
+    const now = await simNow(ctx)
+    const today = new Date(now).toISOString().slice(0, 10)
+    const book = (await ctx.sim.siteAppointments('gp', { date: today })) as { appointments?: any[] }
+    const inPerson = (book.appointments ?? []).filter((a) => a.patientId === P && a.status === 'booked' && a.data?.mode === 'in-person')
+    for (const appt of inPerson) {
+      await ctx.sim.siteAction(
+        'gp',
+        { type: 'cancel_appointment', patientId: P, resourceId: appt.id, expectedVersion: appt.version },
+        key(ctx, item, `cancel-${appt.id}`),
+      )
+      ctx.log(`cancelled in-person appointment ${appt.id} (${new Date(appt.data?.startsAt ?? 0).toISOString().slice(11, 16)}) — patient goal: avoid unnecessary travel`)
+    }
+    const startsAt = Math.floor(now / DAY) * DAY + DAY + 9 * 60 * 60_000 // tomorrow 09:00
+    const session = await ctx.sim.siteAction(
+      'gp',
+      { type: 'create_appointment_session', title: 'Post-discharge telephone reviews', clinician: 'Dr Maya Shah', location: 'Telephone',
+        startsAt, endsAt: startsAt + 3 * 60 * 60_000, slotMinutes: 15, mode: 'telephone' },
+      key(ctx, item, 'session'),
+    )
+    const appt = await ctx.sim.siteAction(
+      'gp',
+      { type: 'book_appointment', patientId: P, sessionId: session.id, sessionVersion: session.version, startsAt,
+        title: 'Post-discharge telephone review (patient goal: avoid unnecessary travel)' },
+      key(ctx, item, 'book'),
+    )
+    ctx.log(`booked telephone review ${appt.id} for ${new Date(startsAt).toISOString().slice(0, 16).replace('T', ' ')} (${P})`)
+    return appt.id
+  } catch (err) {
+    ctx.log(`telephone rebook failed (non-fatal, task still stands): ${String((err as Error).message).slice(0, 140)}`)
+    return undefined
+  }
 }
 
 /**
