@@ -351,6 +351,13 @@ export function modelLane(state: FlowState, t: number): ModelLane {
     const stage: FlowStage = t < admittedAt ? 'take' : homeAt !== null && t >= homeAt ? 'home' : 'ward'
     people[p.attendanceId] = { id: p.attendanceId, stage, bed: bed + 1, admittedAt, homeAt }
   }
+  // Display only: show each person in the bed the live lane actually gave them
+  // when that bed is free in the model at t, so the two wards line up.
+  const byId = new Map(state.patients.map((p) => [p.attendanceId, p]))
+  const used = new Set<number>()
+  const inBed = Object.values(people).filter((m) => m.stage === 'ward')
+  for (const m of inBed) { const real = byId.get(m.id)?.bed; if (real && !used.has(real)) { m.bed = real; used.add(real) } else m.bed = undefined }
+  for (const m of inBed) { if (m.bed === undefined) { let n = 1; while (used.has(n)) n++; m.bed = n; used.add(n) } }
   const vals = Object.values(people)
   return {
     people,
