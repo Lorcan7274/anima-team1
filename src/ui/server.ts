@@ -71,6 +71,22 @@ const PAGE = `<!doctype html>
   .wire .bad{color:var(--critical)}
   .wire .k{color:var(--ink-3)}
   .wire code{background:#f4f4f1;border-radius:4px;padding:0 4px}
+  .kv{display:grid;grid-template-columns:110px 1fr;gap:0 14px;padding:7px 0;border-top:1px solid var(--grid);align-items:baseline}
+  .kv:first-of-type{border-top:none}
+  .kv .k{font-size:12px;color:var(--ink-3);font-weight:420}
+  .kv .v{font-size:13px;color:var(--ink);line-height:1.5}
+  .kv .v code{font-family:ui-monospace,monospace;font-size:11px;background:#f4f4f1;border-radius:4px;padding:1px 5px}
+  .call{border:1px solid var(--grid);border-radius:8px;padding:10px 14px;margin-top:8px}
+  .call .head{display:flex;gap:10px;align-items:baseline;font-size:12px;flex-wrap:wrap}
+  .call .head .t{color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .call .head .m{font-weight:600;color:var(--accent)}
+  .call .head .m.get{color:var(--ink-3)}
+  .call .head .a{font-weight:480}
+  .call .head .ok{color:var(--good);font-weight:480}
+  .call .head .fail{color:var(--critical);font-weight:480}
+  .call pre{background:#f6f6f4;border-radius:6px;padding:8px 10px;font-size:11px;line-height:1.5;
+            white-space:pre-wrap;word-break:break-all;margin:8px 0 0;font-family:ui-monospace,monospace;color:var(--ink-2)}
+  .call .meta{font-size:11px;color:var(--ink-3);margin-top:6px;word-break:break-all}
 
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
   .kpi{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 16px;
@@ -271,17 +287,17 @@ const itemDetail = (i, log) => {
   for (const t of wire) d.push(wireRow(t, false))
   return d.length ? '<div class="detail">' + d.map((x) => '<div>' + x + '</div>').join('') + '</div>' : ''
 }
+const prettyJson = (raw) => { try { return JSON.stringify(JSON.parse(raw), null, 1) } catch { return raw } }
 const wireRow = (t, withPayload) =>
-  '<div class="wire"><span class="k">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
-  '<span class="m' + (t.method === 'POST' ? ' post' : '') + '">' + esc(t.method) + '</span>' +
-  '<span>' + esc(t.path.split('?')[0]) + '</span>' +
-  (t.action ? '<code>' + esc(t.action) + '</code>' : '') +
-  '<span class="' + (t.ok ? 'k' : 'bad') + '">' + (t.status || 'ERR') + '</span>' +
-  (t.got ? '<span class="k">&rarr; ' + esc(t.got) + '</span>' : '') + '</div>' +
-  (withPayload && t.sent
-    ? '<div class="wire" style="border-top:none;padding-top:0"><span class="k">sent</span><code style="white-space:pre-wrap;word-break:break-all">' + esc(t.sent) + '</code></div>' +
-      (t.idempotencyKey ? '<div class="wire" style="border-top:none;padding-top:0"><span class="k">key</span><code>' + esc(t.idempotencyKey) + '</code></div>' : '')
-    : '')
+  '<div class="call"><div class="head">' +
+  '<span class="t">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
+  '<span class="m' + (t.method === 'GET' ? ' get' : '') + '">' + esc(t.method) + '</span>' +
+  '<span class="a">' + esc(t.action || t.path.split('?')[0]) + '</span>' +
+  '<span class="' + (t.ok ? 'ok' : 'fail') + '">' + (t.ok ? 'HTTP ' + t.status : 'FAILED ' + (t.status || '')) + '</span>' +
+  (t.got ? '<span>reply: ' + esc(t.got) + '</span>' : '') + '</div>' +
+  (withPayload && t.sent ? '<pre>' + esc(prettyJson(t.sent)) + '</pre>' : '') +
+  (withPayload && t.idempotencyKey ? '<div class="meta">idempotency key · ' + esc(t.idempotencyKey) + '</div>' : '') +
+  '</div>'
 
 function renderModal() {
   if (!lastState) return
@@ -339,23 +355,29 @@ function renderModal() {
     const { p: p1, i } = found
     document.getElementById('modalTitle').textContent = i.title
     document.getElementById('modalSub').innerHTML = esc(p1.name) + ' · ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' · ' + chip(i.state)
+    const kv = (k, v) => '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'
     const parts = []
-    parts.push('<div class="group"><h3>1 · Detected from the record <span class="tag rec">record</span></h3>' +
-      ((i.evidence || []).map((e) => '<div class="wire"><span class="evidence">&ldquo;' + q(e.quote) + '&rdquo;</span>' +
-        '<code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code></div>').join('') || '<div class="empty">Rule-detected from structured state.</div>') + '</div>')
-    parts.push('<div class="group"><h3>2 · Plan &amp; approval</h3>' +
-      (i.proposedAction ? '<div class="wire">' + esc(i.proposedAction) + '</div>' : '') +
-      (i.approval ? '<div class="wire">Approved by ' + esc(i.approval.by) + '</div>' : '<div class="empty">Not yet approved.</div>') +
-      (i.humanReason ? '<div class="wire">' + esc(i.humanReason) + '</div>' : '') + '</div>')
+    parts.push('<div class="group"><h3>Detected from the record <span class="tag rec">record</span></h3>' +
+      ((i.evidence || []).map((e) =>
+        kv('<code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code>', '&ldquo;' + q(e.quote) + '&rdquo;')).join('') ||
+        '<div class="empty">Rule-detected from structured state.</div>') + '</div>')
+    parts.push('<div class="group"><h3>Plan &amp; approval</h3>' +
+      (i.proposedAction ? kv('Plan', esc(i.proposedAction)) : '') +
+      kv('Approval', i.approval ? 'Approved by ' + esc(i.approval.by) : 'Not yet — awaiting staff approval') +
+      (i.humanReason ? kv('Needs a human', esc(i.humanReason)) : '') + '</div>')
     const wire = (s0.trace || []).filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id))
-    parts.push('<div class="group"><h3>3 · What the agent sent &amp; what the service replied <span>' + wire.length + ' calls</span></h3>' +
-      (wire.length ? wire.map((t) => wireRow(t, true)).join('') : '<div class="empty">No actions yet.</div>') + '</div>')
-    if (i.generated) parts.push('<div class="group"><h3>4 · Drafting provenance</h3><div class="wire">' +
-      (i.generated === 'model' ? '<span class="tag ai">AI</span> content written by the live model' : '<span class="err">⚠ canned fallback — model unavailable</span>') + '</div></div>')
-    if (i.verification) parts.push('<div class="group"><h3>' + (i.generated ? 5 : 4) + ' · Independent verification</h3><div class="wire">' +
-      (i.verification.passed ? '✓ ' : '✗ ') + esc(i.verification.observed) + '</div></div>')
-    if (i.escalation) parts.push('<div class="group"><h3>Escalation <span class="tag ai">AI</span></h3><div class="wire">' +
-      esc(i.escalation.responsibleTeam) + ' — ' + esc(i.escalation.nextAction) + '</div><div class="wire">' + esc(i.escalation.note) + '</div></div>')
+    parts.push('<div class="group"><h3>Agent &harr; ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' <span>' + wire.length + ' calls, oldest first</span></h3>' +
+      (wire.length ? wire.map((t) => wireRow(t, true)).join('') : '<div class="empty">No actions sent yet.</div>') + '</div>')
+    if (i.generated) parts.push('<div class="group"><h3>Drafting provenance</h3>' +
+      kv('Written by', i.generated === 'model'
+        ? '<span class="tag ai">AI</span> the live model wrote this content'
+        : '<span class="err">canned fallback — model unavailable</span>') + '</div>')
+    if (i.verification) parts.push('<div class="group"><h3>Independent verification</h3>' +
+      kv('Re-read result', (i.verification.passed ? '<span style="color:var(--good)">✓ passed</span> · ' : '<span class="err">✗ not yet</span> · ') + esc(i.verification.observed)) + '</div>')
+    if (i.escalation) parts.push('<div class="group"><h3>Escalation <span class="tag ai">AI</span></h3>' +
+      kv('Responsible team', esc(i.escalation.responsibleTeam)) +
+      kv('Next action', esc(i.escalation.nextAction)) +
+      kv('Handover note', esc(i.escalation.note)) + '</div>')
     document.getElementById('modalBody').innerHTML = parts.join('')
     return
   }
