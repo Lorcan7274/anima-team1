@@ -40,6 +40,8 @@ export interface RequestOptions {
   token?: string | null
   headers?: Record<string, string>
   signal?: AbortSignal
+  /** Milliseconds before the request aborts. Defaults to SIM_TIMEOUT_MS or 45000. */
+  timeoutMs?: number
 }
 
 export interface HttpClientOptions {
@@ -88,7 +90,17 @@ export class HttpClient {
       body = JSON.stringify(options.body)
     }
 
-    const response = await this.fetchImpl(url, { method, headers, body, signal: options.signal })
+    const timeoutMs = options.timeoutMs ?? Number(process.env.SIM_TIMEOUT_MS || 45_000)
+    const signal = options.signal ?? (timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined)
+    let response: Response
+    try {
+      response = await this.fetchImpl(url, { method, headers, body, signal })
+    } catch (err) {
+      if ((err as Error).name === 'TimeoutError' || (err as Error).name === 'AbortError') {
+        throw new SimApiError(0, method, url, `no response within ${timeoutMs}ms (simulator hung or unreachable)`)
+      }
+      throw err
+    }
     const payload = await parseBody(response)
     if (!response.ok) throw new SimApiError(response.status, method, url, payload)
     return payload as T

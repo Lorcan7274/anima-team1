@@ -36,22 +36,45 @@ const { sim, world } = await joinWorld(worldName)
 const board: import('../src/orchestrator/model.ts').BoardState = { world, simNow: 0, patients: [], log: [], phase: 'Joining the simulator world', busy: true }
 if (!flag('no-ui')) startUi(board)
 const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }
+// Surface fatal errors on the page instead of leaving a dead tab.
+const fatal = (err: unknown) => {
+  board.phase = `Run failed: ${String((err as Error)?.message ?? err).slice(0, 160)} — Ctrl-C and re-run with --world ${board.world}`
+  board.busy = false
+  console.error(err)
+}
+process.on('uncaughtException', fatal)
+process.on('unhandledRejection', fatal)
 board.log.push('setting up the demo world…')
 
 // --- Setup: stage the narrative (day 3 of Amira's admission) ---------------
+/** The sim flaps under load: retry transient failures with backoff, visibly. */
+async function withRetry<T>(what: string, fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      if (i >= attempts) throw err
+      const wait = i * 5000
+      phase(`${what} — simulator not responding, retrying (attempt ${i + 1}/${attempts})`)
+      board.log.push(`retrying after: ${String((err as Error).message).slice(0, 120)}`)
+      await new Promise((r) => setTimeout(r, wait))
+    }
+  }
+}
+
 console.log('setup: admitting Amira to AMU bed 12 (assign -> assess -> refer -> admit)')
 phase('Admitting Amira to AMU bed 12 — walking the attendance stage machine')
-await admitToWard(sim, AMIRA, 'AMU bed 12')
+await withRetry('Admitting Amira', () => admitToWard(sim, AMIRA, 'AMU bed 12'))
 board.log.push('Amira admitted to AMU bed 12')
 // Eleanor is seeded on the take list in AMU bed 1; bring her fully in.
 phase('Admitting Eleanor to AMU bed 1')
-await admitToWard(sim, ELEANOR, 'AMU bed 1')
+await withRetry('Admitting Eleanor', () => admitToWard(sim, ELEANOR, 'AMU bed 1'))
 board.log.push('Eleanor admitted to AMU bed 1')
 // TODO(team): optionally registerAndAdmit() 2-4 directory patients for ward size.
 
 // --- Board + detection ------------------------------------------------------
 phase('Loading patient records from the simulator')
-const built = await buildBoard(sim, world, [AMIRA, ELEANOR])
+const built = await withRetry('Loading records', () => buildBoard(sim, world, [AMIRA, ELEANOR]))
 board.patients.push(...built.patients)
 board.simNow = built.simNow
 
