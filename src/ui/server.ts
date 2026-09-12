@@ -420,7 +420,6 @@ export const PAGE = `<!doctype html>
     <div class="content">
       <div id="board"></div>
       <div class="rail">
-        <div class="card"><h2>Services</h2><div id="services"></div></div>
         <div class="card log-card" id="audit"><h2>Trace <span style="font-size:11px;color:var(--ink-3);font-weight:420">· live, newest first</span></h2><div id="wiretrace"></div></div>
       </div>
     </div>
@@ -818,13 +817,12 @@ function render(s) {
       what = 'All arrangements executed and independently verified. Final discharge is the clinician\\'s decision.'
     }
     const open = p.items.filter((i) => i.state !== 'verified').length
-    return '<div class="hero"><div class="q">Homeward discharge rehearsal</div>' +
-      '<h2>Can ' + first + ' safely go home today?</h2>' +
+    return '<div class="hero">' +
       (ready
-        ? '<div class="verdict yes">Yes — operationally ready</div><div class="vsub">' + p.items.length + ' of ' + p.items.length + ' dependencies verified.</div>'
-        : '<div class="verdict no">No — not yet</div><div class="vsub">' + open + ' of ' + p.items.length + ' dependencies outstanding' +
-          (human.length ? ' — ' + human.length + (human.length === 1 ? ' requires' : ' require') + ' a person' : '') + '.</div>') +
-      '<div class="vwhat">' + what + '</div></div>'
+        ? '<div class="verdict yes">Clear</div><div class="vsub">' + p.items.length + ' of ' + p.items.length + ' verified · clinician decision remains</div>'
+        : '<div class="verdict no">Not clear</div><div class="vsub">' + open + ' of ' + p.items.length + ' outstanding' +
+          (human.length ? ' · ' + human.length + (human.length === 1 ? ' needs' : ' need') + ' a person' : '') + '</div>') +
+      '</div>'
   }
 
   const graphView = () => (sel ? [sel] : []).map((p) => {
@@ -891,12 +889,6 @@ function render(s) {
   document.getElementById('board').innerHTML =
     heroFor(sel) + (currentView === 'table' ? tableView() : currentView === 'list' ? listView() : graphView())
 
-  document.getElementById('services').innerHTML = Object.entries(SERVICES).map(([key, name]) => {
-    const n = all.filter((i) => i.owner === key && i.state !== 'verified').length
-    const initials = name.split(' ').map((w) => w[0]).slice(0, 2).join('')
-    return '<div class="svc"><span class="ic">' + initials + '</span><span class="nm">' + name + '</span>' +
-      '<span class="n' + (n ? '' : ' clear') + '">' + (n ? n + ' open' : 'clear') + '</span></div>'
-  }).join('')
 
   renderRailTrace(s)
 }
