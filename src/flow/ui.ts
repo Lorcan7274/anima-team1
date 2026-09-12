@@ -76,6 +76,8 @@ export const FLOW_PAGE = `<!doctype html>
   .fig .badge{position:absolute;top:-2px;right:1px;width:8px;height:8px;border-radius:50%;background:var(--critical);border:1.5px solid var(--surface)}
   .fig.enter{opacity:0}
   .fig.home svg path,.fig.home svg circle{fill:var(--good)}
+  .fig.home.forced svg path,.fig.home.forced svg circle{fill:var(--serious)}
+  .lane-head .mini .early{color:#b3552a;font-weight:480}
   .fig.ward svg path,.fig.ward svg circle{fill:var(--accent)}
   .fig.ae svg path,.fig.ae svg circle{fill:#8f9bb3}
   .fig.take svg path,.fig.take svg circle{fill:var(--serious)}
@@ -204,7 +206,8 @@ function layoutLane(laneId, people, stageOf, bedOf, W, now, live) {
       el.style.top = top.toFixed(0) + 'px'
       const inWard = s.key === 'ward'
       const fit = inWard && live && p.fitAt !== undefined && now >= p.fitAt
-      el.className = 'fig ' + (s.key === 'home' ? 'home' : inWard ? (fit ? 'fit' : 'ward') : s.key === 'take' ? 'take' : 'ae')
+      const forced = !live && forcedOf && forcedOf(p)
+      el.className = 'fig ' + (s.key === 'home' ? (forced ? 'home forced' : 'home') : inWard ? (fit ? 'fit' : 'ward') : s.key === 'take' ? 'take' : 'ae')
       const dots = el.querySelector('.dots')
       if (inWard && live) {
         dots.innerHTML = (p.items || []).map((i) => '<i class="' + (i.state === 'verified' ? 'ok' : i.state === 'failed' ? 'bad' : (i.state === 'awaiting_verification' || i.state === 'resolving') ? 'on' : '') + '"></i>').join('')
@@ -213,7 +216,7 @@ function layoutLane(laneId, people, stageOf, bedOf, W, now, live) {
       if (live && p.error && s.key !== 'home') el.insertAdjacentHTML('beforeend', '<span class="badge"></span>')
       el.title = p.name + ' · ' + esc(p.complaint) + ' · acuity ' + p.acuity +
         (inWard ? (live ? (fit ? ' · medically fit, discharge checklist running' : ' · being treated, fit in ' + rel(p.fitAt, now)) : ' · in a bed (model)') : '') +
-        (s.key === 'home' ? ' · home' + (p.homeFrom === 'ae' ? ' from A&E' : ' from the ward') : '') +
+        (s.key === 'home' ? (forced ? ' · sent home early under bed pressure, checklist items outstanding' : ' · home' + (p.homeFrom === 'ae' ? ' from A&E' : ' from the ward')) : '') +
         (live && p.error ? ' · last action failed, retrying: ' + p.error : '') +
         (inWard && live && (p.items || []).length ? ' · ' + (p.items || []).filter((i) => i.state === 'verified').length + ' of ' + p.items.length + ' items verified' : '')
     })
@@ -244,10 +247,10 @@ function render(s) {
   const ppl = s.patients
   layoutLane('laneAgent', ppl, (p) => p.flow, (p) => p.bed, W, s.simNow, true)
   const m = s.model.people
-  layoutLane('laneModel', ppl, (p) => (m[p.attendanceId] || { stage: p.flow }).stage, (p) => (m[p.attendanceId] || {}).bed, W, s.simNow, false)
+  layoutLane('laneModel', ppl, (p) => (m[p.attendanceId] || { stage: p.flow }).stage, (p) => (m[p.attendanceId] || {}).bed, W, s.simNow, false, (p) => (m[p.attendanceId] || {}).forced)
   document.getElementById('miniAgent').innerHTML = '<span>beds <b>' + c.occupied + '/' + W + '</b></span><span>waiting for a bed <b>' + c.waitingForBed + '</b></span><span>home <b>' + c.home + '</b></span>'
   document.querySelectorAll('#speed button').forEach((b) => b.classList.toggle('on', Number(b.dataset.step) === s.params.stepMinutes))
-  document.getElementById('miniModel').innerHTML = '<span>beds <b>' + c.modelOccupied + '/' + W + '</b></span><span>waiting for a bed <b>' + c.modelWaitingForBed + '</b></span><span>home <b>' + c.modelHome + '</b></span>'
+  document.getElementById('miniModel').innerHTML = '<span>beds <b>' + c.modelOccupied + '/' + W + '</b></span><span>waiting for a bed <b>' + c.modelWaitingForBed + '</b></span><span>home <b>' + c.modelHome + '</b>' + (c.modelForcedHome ? ' <span class="early">· ' + c.modelForcedHome + ' sent home early, items outstanding</span>' : '') + '</span>'
 }
 async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
 async function togglePause() { await fetch('/pause', { method: 'POST' }); tick() }

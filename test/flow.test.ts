@@ -59,7 +59,7 @@ test('ingest: new arrivals become people with a seeded plan and stay; seeded inp
 })
 
 test('model lane: same arrivals queue on the same beds; a full ward makes people wait', () => {
-  const state = newFlowState('w', { stepMinutes: 30, wardSize: 2, admitShareAcuity3: 1, stayMinutes: [60, 60] })
+  const state = newFlowState('w', { stepMinutes: 30, wardSize: 2, admitShareAcuity3: 1, stayMinutes: [60, 60], modelMaxWaitMinutes: 100000 })
   state.simNow = T0
   const people = ingest(state, [arrival('a1', 'SIM-1', 'take'), arrival('a2', 'SIM-2', 'take'), arrival('a3', 'SIM-3', 'take')],
     [record('SIM-1', 'A A'), record('SIM-2', 'B B'), record('SIM-3', 'C C')])
@@ -120,7 +120,7 @@ test('a person is walked A&E -> ward -> checklist -> home, admitted as soon as a
   const f = fakeSim()
   f.att.a1 = arrival('a1', 'SIM-1', 'waiting', '2') // acuity 2: always admitted
   f.att.a2 = arrival('a2', 'SIM-2', 'waiting', '2')
-  const state = newFlowState('w', { stepMinutes: 60, wardSize: 1, admitShareAcuity3: 0, stayMinutes: [60, 60] })
+  const state = newFlowState('w', { stepMinutes: 60, wardSize: 1, admitShareAcuity3: 0, stayMinutes: [60, 60], modelMaxWaitMinutes: 240 })
   state.simNow = T0
   state.startedAt = T0
   const ctx: FlowCtx = { sim: f.sim, state, log: (m) => state.log.push(m) }
@@ -154,7 +154,7 @@ test('a person is walked A&E -> ward -> checklist -> home, admitted as soon as a
 test('a failed action is recorded on the person and retried next tick', async () => {
   const f = fakeSim()
   f.att.a1 = arrival('a1', 'SIM-1', 'waiting', '2')
-  const state = newFlowState('w', { stepMinutes: 30, wardSize: 1, admitShareAcuity3: 0, stayMinutes: [60, 60] })
+  const state = newFlowState('w', { stepMinutes: 30, wardSize: 1, admitShareAcuity3: 0, stayMinutes: [60, 60], modelMaxWaitMinutes: 240 })
   state.simNow = T0
   const ctx: FlowCtx = { sim: f.sim, state, log: () => {} }
   ingest(state, [f.att.a1], [])
@@ -194,7 +194,10 @@ test('offline stand-in: the two lanes diverge after people become fit, with no f
   // Homeward's ward turns beds over and sends more people home.
   assert.ok(c.modelOccupied >= c.occupied, `model beds ${c.modelOccupied} vs agent ${c.occupied}`)
   assert.ok(c.modelWaitingForBed > c.waitingForBed, `model queue ${c.modelWaitingForBed} vs agent ${c.waitingForBed}`)
-  assert.ok(c.home > c.modelHome, `home ${c.home} vs model ${c.modelHome}`)
+  // ...but the queue is bounded, because the manual ward resets under pressure by sending fit people home early.
+  assert.ok(c.modelWaitingForBed <= 16, `model queue bounded: ${c.modelWaitingForBed}`)
+  assert.ok(c.modelForcedHome > 0, 'some people were sent home early with items outstanding')
+  assert.ok(c.home >= c.modelHome - c.modelForcedHome, `safe discharges ${c.home} vs model ${c.modelHome - c.modelForcedHome}`)
   assert.ok(c.bedHoursSaved > 0)
   // Every verified item was verified by the real verifier against the stand-in's timed resources.
   const verified = state.patients.flatMap((p) => p.items).filter((i) => i.state === 'verified')

@@ -55,9 +55,16 @@ export interface FlowParams {
   admitShareAcuity3: number
   /** Treatment stay before fit, sim minutes, seeded per patient in this range. */
   stayMinutes: [number, number]
+  /**
+   * Manual-ward pressure response: once someone has waited this long for a
+   * bed, the ward frees one at the next ward round by discharging whoever has
+   * been medically fit the longest, checklist items outstanding. Real wards
+   * reset this way; without it the model's queue grows without bound.
+   */
+  modelMaxWaitMinutes: number
 }
 
-export const DEFAULT_FLOW: FlowParams = { stepMinutes: 30, wardSize: 12, admitShareAcuity3: 0.25, stayMinutes: [60, 180] }
+export const DEFAULT_FLOW: FlowParams = { stepMinutes: 30, wardSize: 12, admitShareAcuity3: 0.25, stayMinutes: [60, 180], modelMaxWaitMinutes: 240 }
 
 export interface FlowState extends BoardState {
   patients: FlowPerson[]
@@ -325,8 +332,8 @@ export async function tick(ctx: FlowCtx): Promise<void> {
 
 // --- Today's ward: the same arrivals through the manual-working model --------
 
-export interface ModelPerson { id: string; stage: FlowStage; bed?: number; admittedAt?: number; homeAt: number | null }
-export interface ModelLane { people: Record<string, ModelPerson>; occupied: number; waitingForBed: number; home: number }
+export interface ModelPerson { id: string; stage: FlowStage; bed?: number; admittedAt?: number; homeAt: number | null; /** sent home early under bed pressure, items outstanding */ forced?: boolean }
+export interface ModelLane { people: Record<string, ModelPerson>; occupied: number; waitingForBed: number; home: number; forcedHome: number }
 
 /**
  * Replays the agent lane's A&E decisions through a ward of the same size where
@@ -335,7 +342,11 @@ export interface ModelLane { people: Record<string, ModelPerson>; occupied: numb
  */
 export function modelLane(state: FlowState, t: number): ModelLane {
   const people: Record<string, ModelPerson> = {}
-  const beds: number[] = Array.from({ length: state.params.wardSize }, () => 0)
+  const round = 120 * MIN
+  const grid = (x: number) => state.startedAt + Math.ceil((x - state.startedAt) / round) * round
+  const maxWait = (state.params.modelMaxWaitMinutes ?? 240) * MIN
+  type Bed = { freeAt: number; occ?: { id: string; fitAt: number; afterFit: number | null } }
+  const beds: Bed[] = Array.from({ length: state.params.wardSize }, () => ({ freeAt: 0 }))
   const queue = state.patients
     .filter((p) => p.plan === 'admit' && p.takeAt !== undefined)
     .sort((a, b) => (a.takeAt! - b.takeAt!) || a.attendanceId.localeCompare(b.attendanceId))
@@ -346,12 +357,37 @@ export function modelLane(state: FlowState, t: number): ModelLane {
   }
   for (const p of queue) {
     let bed = 0
-    for (let n = 1; n < beds.length; n++) if (beds[n] < beds[bed]) bed = n
-    const admittedAt = Math.max(p.takeAt!, beds[bed])
-    const homeAt = p.modelAfterFit === null ? null : admittedAt + p.stayMinutes * MIN + p.modelAfterFit
-    beds[bed] = homeAt ?? Number.MAX_SAFE_INTEGER
-    const stage: FlowStage = t < admittedAt ? 'take' : homeAt !== null && t >= homeAt ? 'home' : 'ward'
-    people[p.attendanceId] = { id: p.attendanceId, stage, bed: bed + 1, admittedAt, homeAt }
+    for (let n = 1; n < beds.length; n++) if (beds[n].freeAt < beds[bed].freeAt) bed = n
+    let admittedAt = Math.max(p.takeAt!, beds[bed].freeAt)
+    if (admittedAt - p.takeAt! > maxWait) {
+      // Pressure response: free a bed at the ward round after the wait limit by
+      // discharging the longest-fit occupant early (never someone whose barrier
+      // needs an external decision).
+      const deadline = grid(p.takeAt! + maxWait)
+      let victim = -1
+      for (let n = 0; n < beds.length; n++) {
+        const occ = beds[n].occ
+        if (!occ || beds[n].freeAt <= deadline || occ.fitAt > deadline || occ.afterFit === null) continue
+        if (victim < 0 || occ.fitAt < beds[victim].occ!.fitAt) victim = n
+      }
+      if (victim >= 0) {
+        const occ = beds[victim].occ!
+        people[occ.id].homeAt = deadline
+        people[occ.id].forced = true
+        beds[victim].freeAt = deadline
+        bed = victim
+        admittedAt = deadline
+      }
+    }
+    const fitAt = admittedAt + p.stayMinutes * MIN
+    const homeAt = p.modelAfterFit === null ? null : fitAt + p.modelAfterFit
+    beds[bed] = { freeAt: homeAt ?? Number.MAX_SAFE_INTEGER, occ: { id: p.attendanceId, fitAt, afterFit: p.modelAfterFit } }
+    people[p.attendanceId] = { id: p.attendanceId, stage: 'ward', bed: bed + 1, admittedAt, homeAt }
+  }
+  // Stages at t (forced discharges may have shortened a homeAt after the entry was made).
+  for (const p of queue) {
+    const m = people[p.attendanceId]
+    m.stage = t < m.admittedAt! ? 'take' : m.homeAt !== null && t >= m.homeAt ? 'home' : 'ward'
   }
   // Display only: show each person in the bed the live lane actually gave them
   // when that bed is free in the model at t, so the two wards line up.
@@ -366,12 +402,15 @@ export function modelLane(state: FlowState, t: number): ModelLane {
     occupied: vals.filter((x) => x.stage === 'ward').length,
     waitingForBed: vals.filter((x) => x.stage === 'take' && x.admittedAt !== undefined).length,
     home: vals.filter((x) => x.stage === 'home').length,
+    forcedHome: vals.filter((x) => x.stage === 'home' && x.forced).length,
   }
 }
 
 export interface FlowCounters {
   inAe: number; waitingForBed: number; occupied: number; home: number; homeFromWard: number
   modelOccupied: number; modelWaitingForBed: number; modelHome: number
+  /** People the manual model sent home early under bed pressure, checklist items outstanding. */
+  modelForcedHome: number
   /** Bed-hours the manual model would still be using for people the agent world has sent home from the ward. */
   bedHoursSaved: number
   medianDoorToHomeHours: number | null
@@ -397,6 +436,7 @@ export function counters(state: FlowState, model: ModelLane): FlowCounters {
     modelOccupied: model.occupied,
     modelWaitingForBed: model.waitingForBed,
     modelHome: model.home,
+    modelForcedHome: model.forcedHome,
     bedHoursSaved: Math.round((saved / MIN / 60) * 10) / 10,
     medianDoorToHomeHours: durations.length ? Math.round(durations[Math.floor(durations.length / 2)] * 10) / 10 : null,
   }
