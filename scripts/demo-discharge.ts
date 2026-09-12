@@ -31,15 +31,25 @@ const worldName = arg('world') ?? randomWorldName()
 console.log(`world: ${worldName}`)
 const { sim, world } = await joinWorld(worldName)
 
+// Serve the UI immediately with an empty board — it fills in live as setup
+// and detection progress, so the browser never sees a connection refused.
+const board: import('../src/orchestrator/model.ts').BoardState = { world, simNow: 0, patients: [], log: [] }
+if (!flag('no-ui')) startUi(board)
+board.log.push('setting up the demo world…')
+
 // --- Setup: stage the narrative (day 3 of Amira's admission) ---------------
 console.log('setup: admitting Amira to AMU bed 12 (assign -> assess -> refer -> admit)')
 await admitToWard(sim, AMIRA, 'AMU bed 12')
+board.log.push('Amira admitted to AMU bed 12')
 // Eleanor is seeded on the take list in AMU bed 1; bring her fully in.
 await admitToWard(sim, ELEANOR, 'AMU bed 1')
+board.log.push('Eleanor admitted to AMU bed 1')
 // TODO(team): optionally registerAndAdmit() 2-4 directory patients for ward size.
 
 // --- Board + detection ------------------------------------------------------
-const board = await buildBoard(sim, world, [AMIRA, ELEANOR])
+const built = await buildBoard(sim, world, [AMIRA, ELEANOR])
+board.patients.push(...built.patients)
+board.simNow = built.simNow
 
 // Safe re-run: restore item state from the last snapshot when it is the SAME
 // world. Settled items stay settled, so nothing is re-resolved or duplicated.
@@ -77,8 +87,6 @@ const snapshot = () => {
   try { writeFileSync('fallback-board.json', JSON.stringify(board, null, 1)) } catch {}
 }
 snapshot()
-
-if (!flag('no-ui')) startUi(board)
 
 if (flag('detect-only')) {
   console.log('\n--detect-only: stopping after detection. UI stays up if started.')

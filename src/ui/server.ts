@@ -275,6 +275,12 @@ export function startUi(board: BoardState, port = 4600): void {
       res.setHeader('content-type', 'text/html')
       res.end(PAGE)
     }
-  }).listen(port)
+  })
+    .once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`port ${port} is already in use — another Homeward run is open. Close it (Ctrl-C) or open http://localhost:${port} for the existing one.`)
+      } else throw err
+    })
+    .listen(port)
   console.log(`ward list: http://localhost:${port}`)
 }
