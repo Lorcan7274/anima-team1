@@ -35,7 +35,7 @@ if (flag('replay')) {
   const state = JSON.parse(readFileSync(arg('replay-file') ?? SNAPSHOT, 'utf8')) as FlowState
   state.paused = true
   state.busy = false
-  state.phase = 'Replay of a recorded run — simulator not connected'
+  state.phase = 'Replay of a recorded run, simulator not connected'
   startFlowUi(state, { replay: true, port: Number(arg('port') ?? 4700) })
 } else {
   const stay = (arg('stay') ?? '').split('-').map(Number)
@@ -80,7 +80,7 @@ if (flag('replay')) {
     } catch (err) {
       failures++
       state.busy = false
-      state.phase = `Simulator not responding (${String((err as Error).message).slice(0, 80)}) — retrying in ${Math.min(failures * 5, 30)}s`
+      state.phase = `Simulator not responding (${String((err as Error).message).slice(0, 80)}), retrying in ${Math.min(failures * 5, 30)}s`
       log(state.phase)
       await new Promise((r) => setTimeout(r, Math.min(failures * 5, 30) * 1000))
     }

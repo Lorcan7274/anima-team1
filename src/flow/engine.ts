@@ -5,7 +5,7 @@
  * arrivals per sim-hour, each with a directory record) and nobody in it ever
  * progresses without an action. This engine is the outflow: every tick it
  * advances the clock, ingests new arrivals, and moves each person one station
- * along the journey with real actions — assign/assess in A&E, discharge from
+ * along the journey with real actions, assign/assess in A&E, discharge from
  * A&E or refer to the take, admit when a ward bed is free, run the discharge
  * checklist through the same resolvers and verifiers the ward-round demo uses,
  * and discharge when every item is verified.
@@ -275,7 +275,7 @@ export async function stepPerson(ctx: FlowCtx, p: FlowPerson): Promise<void> {
   } catch (err) {
     p.error = String((err as Error).message ?? err).slice(0, 120)
     state.errors++
-    ctx.log(`${p.name}: ${p.flow} step failed, will retry — ${p.error}`)
+    ctx.log(`${p.name}: ${p.flow} step failed, will retry, ${p.error}`)
   }
 }
 
@@ -321,7 +321,7 @@ export async function tick(ctx: FlowCtx): Promise<void> {
   state.arrivals += fresh.length
   if (fresh.length) ctx.log(`${fresh.length} new arrival${fresh.length > 1 ? 's' : ''} in A&E`)
   const active = state.patients.filter((p) => p.flow !== 'home')
-  state.phase = `Moving ${active.length} people along — A&E, take, ward, checklist, discharge`
+  state.phase = `Moving ${active.length} people along, A&E, take, ward, checklist, discharge`
   // Ward first so beds free up before the take is admitted.
   const order: FlowStage[] = ['ward', 'take', 'assessing', 'waiting']
   for (const stage of order) await pool(active.filter((p) => p.flow === stage), 4, (p) => stepPerson(ctx, p))

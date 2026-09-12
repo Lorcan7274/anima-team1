@@ -95,12 +95,12 @@ export const FLOW_PAGE = `<!doctype html>
 </style></head><body>
 <div class="top">
   <div class="brand"><div class="mark">H</div><div><h1>Homeward</h1></div></div>
-  <span class="speed" id="speed" title="simulated time per step — a bigger step is faster">Step
+  <span class="speed" id="speed" title="simulated time per step, a bigger step is faster">Step
     <button data-step="15" onclick="setSpeed(15)">15 min</button><button data-step="30" onclick="setSpeed(30)">30 min</button>
     <button data-step="60" onclick="setSpeed(60)">1 h</button><button data-step="120" onclick="setSpeed(120)">2 h</button><span class="hint">faster &rarr;</span></span>
   <span class="warn" id="warn" style="display:none">Warning: sim server timing out</span>
   <button class="ghost" id="pauseBtn" onclick="togglePause()">Pause</button>
-  <div class="clock" id="clock">—<small id="clockSub">sim time since start</small></div>
+  <div class="clock" id="clock">, <small id="clockSub">sim time since start</small></div>
 </div>
 <div class="lane">
   <div class="lane-head"><h2>With Homeward</h2><span class="tag live" id="modeTag">live simulator world</span>
@@ -235,7 +235,7 @@ function layoutLane(laneId, people, stageOf, bedOf, W, now, live, forcedOf) {
 function render(s) {
   last = s
   const W = s.params.wardSize
-  document.getElementById('clock').innerHTML = (s.startedAt ? '+' + rel(s.simNow, s.startedAt) : '—') + '<small id="clockSub">sim time since start · tick ' + s.tick + ' · ' + s.params.stepMinutes + ' sim-min per tick</small>'
+  document.getElementById('clock').innerHTML = (s.startedAt ? '+' + rel(s.simNow, s.startedAt) : ', ') + '<small id="clockSub">sim time since start · tick ' + s.tick + ' · ' + s.params.stepMinutes + ' sim-min per tick</small>'
   document.getElementById('pauseBtn').textContent = s.paused ? 'Resume' : 'Pause'
   const mt = document.getElementById('modeTag')
   if (s.mode === 'offline') { mt.className = 'tag sim'; mt.textContent = 'simulated · verified simulator timings'; mt.title = 'Local stand-in for the simulator: results 120 min, visits 90, watch reading 10, letters and tasks at once' }
@@ -280,7 +280,7 @@ export function startFlowUi(state: FlowState, opts: { port?: number; replay?: bo
   })
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`port ${port} is busy (an older run?) — retrying every 2s`)
+      console.error(`port ${port} is busy (an older run?), retrying every 2s`)
       setTimeout(() => server.listen(port, '127.0.0.1'), 2000)
     } else throw err
   })
