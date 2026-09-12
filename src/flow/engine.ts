@@ -12,7 +12,7 @@
  *
  * Three things the simulator does not model are stated assumptions here and
  * on screen: (1) how long treatment takes before someone is medically fit
- * (a seeded 2-8 h stay), (2) who gets admitted (acuity <= 2 always, a seeded
+ * (a seeded 1-3 h stay), (2) who gets admitted (acuity <= 2 always, a seeded
  * share of acuity 3), (3) "today's ward", the comparison lane, which is the
  * illustrative manual-working model in ../story/baseline.ts fed the same
  * arrivals and admissions, with the same bed count.
@@ -57,7 +57,7 @@ export interface FlowParams {
   stayMinutes: [number, number]
 }
 
-export const DEFAULT_FLOW: FlowParams = { stepMinutes: 30, wardSize: 12, admitShareAcuity3: 0.35, stayMinutes: [120, 480] }
+export const DEFAULT_FLOW: FlowParams = { stepMinutes: 30, wardSize: 12, admitShareAcuity3: 0.35, stayMinutes: [60, 180] }
 
 export interface FlowState extends BoardState {
   patients: FlowPerson[]

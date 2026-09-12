@@ -7,7 +7,7 @@
  *   node scripts/flow-sim.ts                      # new world, UI on http://localhost:4700
  *   node scripts/flow-sim.ts --world <name>       # join a specific world (join code!)
  *   node scripts/flow-sim.ts --step 30 --beds 12  # sim-minutes per tick, ward size
- *   node scripts/flow-sim.ts --stay 60-240        # assumed treatment stay before fit, sim-minutes (default 120-480)
+ *   node scripts/flow-sim.ts --stay 60-240        # assumed treatment stay before fit, sim-minutes (default 60-180)
  *   node scripts/flow-sim.ts --llm                # let the model draft letters (slower; default: canned drafts)
  *   node scripts/flow-sim.ts --replay             # no simulator: animate flow-state.json
  *   node scripts/flow-sim.ts --port 4701          # serve the screen elsewhere (default 4700)

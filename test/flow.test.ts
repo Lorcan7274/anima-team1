@@ -40,7 +40,7 @@ test('ingest: new arrivals become people with a seeded plan and stay; seeded inp
   const [p1, p2] = fresh
   assert.equal(p1.flow, 'waiting')
   assert.ok(['admit', 'home-from-ae'].includes(p1.plan))
-  assert.ok(p1.stayMinutes >= 120 && p1.stayMinutes <= 480)
+  assert.ok(p1.stayMinutes >= 60 && p1.stayMinutes <= 180)
   assert.equal(p2.flow, 'ward')
   assert.equal(p2.bed, 3)
   assert.equal(p2.plan, 'admit')
