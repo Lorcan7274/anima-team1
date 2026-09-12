@@ -30,10 +30,28 @@ export function connectWorld(
 export async function joinWorld(
   worldName: string,
   trace?: (entry: TraceEntry) => void,
+  attempts = 3,
+  onRetry?: (attempt: number, err: unknown) => void,
 ): Promise<{ sim: SimClient; world: string }> {
   const bootstrap = new SimClient({ origin: ORIGIN, trace })
-  const created = (await bootstrap.createTeam(worldName)) as { apiKey: string }
-  return { sim: bootstrap.withKey(created.apiKey), world: worldName }
+  // /api/keys is the simulator's slowest endpoint: a fresh world is seeded on
+  // this call. Retry on no-response and 5xx; the same team name always maps to
+  // the same world and key, so a retry can never create a duplicate.
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const created = (await bootstrap.createTeam(worldName)) as { apiKey: string }
+      return { sim: bootstrap.withKey(created.apiKey), world: worldName }
+    } catch (err) {
+      lastErr = err
+      const status = (err as { status?: number }).status
+      const retryable = status === 0 || status === undefined || status >= 500
+      if (!retryable || attempt === attempts) break
+      onRetry?.(attempt, err)
+      await new Promise((r) => setTimeout(r, attempt * 5000))
+    }
+  }
+  throw lastErr
 }
 
 interface Attendance {

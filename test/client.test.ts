@@ -107,3 +107,22 @@ test('telephonyLiveUrl switches to a websocket scheme', () => {
   const client = new SimClient({ origin: 'https://sim.example', apiKey: 'k' })
   assert.equal(client.telephonyLiveUrl(), 'wss://sim.example/api/telephony/live')
 })
+
+test('createTeam gets a long timeout of its own, because a fresh world is seeded on that call', async () => {
+  let seen: RequestInit | undefined
+  const impl = (async (_input: string | URL | Request, init?: RequestInit) => {
+    seen = init
+    return new Response(JSON.stringify({ apiKey: 'k' }), { status: 201, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  const client = new SimClient({ origin: 'https://sim.example', fetch: impl })
+  await client.createTeam('slow-world', 250)
+  assert.ok(seen?.signal, 'a timeout signal is attached')
+  const started = Date.now()
+  const slow = ((_input: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))) as unknown as typeof fetch // answers only by aborting
+  const hung = new SimClient({ origin: 'https://sim.example', fetch: slow })
+  const keepAlive = setTimeout(() => {}, 5000) // AbortSignal.timeout's own timer is unref'd and would let the process exit first
+  await assert.rejects(hung.createTeam('slow-world', 200), (e: any) => e.status === 0 && /no response within 200ms/.test(e.message))
+  clearTimeout(keepAlive)
+  assert.ok(Date.now() - started < 2000, 'the explicit timeout is the one used')
+})

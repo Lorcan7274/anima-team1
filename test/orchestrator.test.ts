@@ -70,3 +70,28 @@ test('.env.example contains no real-looking secrets', () => {
   assert.doesNotMatch(text, /sim_[0-9a-f]{20,}/, 'sim team key must be a placeholder')
   assert.doesNotMatch(text, /sk-[A-Za-z0-9_-]{20,}/, 'OpenAI key must never appear')
 })
+
+test('joinWorld retries /api/keys when the simulator does not answer, and never on a client error', { timeout: 30_000 }, async () => {
+  const { joinWorld } = await import('../src/orchestrator/world.ts')
+  const { SimClient } = await import('../src/sim/index.ts')
+  const realFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = (async () => {
+    calls++
+    if (calls === 1) throw Object.assign(new Error('boom'), { name: 'TimeoutError' })
+    return new Response(JSON.stringify({ apiKey: 'key-after-retry' }), { status: 201, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  try {
+    const retries: number[] = []
+    const { sim } = await joinWorld('probe-world', undefined, 3, (attempt) => retries.push(attempt))
+    assert.equal(calls, 2)
+    assert.deepEqual(retries, [1])
+    assert.ok(sim instanceof SimClient)
+    calls = 0
+    globalThis.fetch = (async () => { calls++; return new Response(JSON.stringify({ error: 'bad name' }), { status: 400, headers: { 'content-type': 'application/json' } }) }) as typeof fetch
+    await assert.rejects(joinWorld('bad', undefined, 3), (e: any) => e.status === 400)
+    assert.equal(calls, 1, 'a 400 is not retried')
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})
