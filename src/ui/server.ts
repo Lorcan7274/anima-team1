@@ -25,7 +25,8 @@
  * idempotency key sit behind a "Show request" drop-down that stays open
  * across the poll.
  */
-import { createServer } from 'node:http'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import type { BoardState, ChecklistItem, PatientRow } from '../orchestrator/model.ts'
 import { approveAll, clearHold, prepareEscalation } from '../orchestrator/run.ts'
 import { computeStory } from '../story/story.ts'
@@ -1245,7 +1246,7 @@ async function escalate(id) {
 setInterval(tick, 1500); tick()
 </script></body></html>`
 
-export function startUi(board: BoardState, port = 4600): void {
+export function startUi(board: BoardState, port = 4600): Server {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.pathname === '/state') {
@@ -1282,5 +1283,6 @@ export function startUi(board: BoardState, port = 4600): void {
       setTimeout(() => server.listen(port, '127.0.0.1'), 2000)
     } else throw err
   })
-  server.listen(port, '127.0.0.1', () => console.log(`ward list: http://localhost:${port} (localhost only)`))
+  server.listen(port, '127.0.0.1', () => console.log(`ward list: http://localhost:${(server.address() as AddressInfo).port} (localhost only)`))
+  return server
 }

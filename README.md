@@ -165,9 +165,16 @@ Pass `trace` in the client options to receive one record per request after it co
 ## Tests
 
 ```bash
-npm test          # mocked fetch, no network or key needed
+npm test          # fake simulator, no network or key needed
 npm run typecheck # needs `npm install` first for typescript
 ```
+
+The suite runs offline against an in-memory simulator (`test/helpers/fake-sim.ts`):
+detection (`detect.test.ts`), resolvers (`resolve.test.ts`), verifiers (`verify.test.ts`),
+the run loop (`run.test.ts`), the ward page routes (`ui-server.test.ts`), engine invariants,
+and a contract check of every action type and enum the code sends against a captured copy of
+the simulator's OpenAPI enums (`test/fixtures/openapi-enums.json`). GitHub Actions runs
+typecheck and the suite on every push and pull request (`.github/workflows/ci.yml`).
 
 ## Still to verify against the live API
 
