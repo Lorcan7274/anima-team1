@@ -112,9 +112,13 @@ Then `process_document` with `documentCommand: 'send'` (`resourceId` +
 `expectedVersion`) — verified to appear in `GET /api/sites/gp/documents` immediately.
 `documentCommand` enum: `send | assign | review | file | annotate`.
 
-Also use **`share_record`** to make the hospital-only document `r-1` and the new
-summary visible to community — a cheap, visible cross-service beat the handover
-otherwise lacks (UNTESTED — check schema, likely `resourceId` + target).
+Also use **`share_record`** to make the hospital-only document `r-1` visible to
+community — a cheap, visible cross-service beat the handover otherwise lacks.
+VERIFIED (scratch world, 12 Sep): `{type: 'share_record', resourceId, expectedVersion,
+target: 'community'}` on the `document` returns 200 and `visibleTo` gains `community`.
+The discharge summary itself is **refused** (409 "Use the document workflow to process
+this letter") — it reaches the GP through `process_document send` only. Implemented
+best-effort in `resolveSummary`.
 
 ### Verified timings
 One `sim.advanceClock(121)` — the method exists in `src/sim/client.ts` and wraps
@@ -169,10 +173,15 @@ Other seeded facts (fresh world, discover by query, never hardcode ids):
 - GP inbox: cardiology letter (urgent, unassigned) chasing a missing medicines-
   reconciliation attachment; **also a seeded `discharge-summary-example` for Amira
   already `sent`** — see the verifier rule.
-- **She already has an 08:15 in-person practice appointment today** (booked, 15 min).
+- **She already has an 08:15 in-person practice appointment today** (booked, 15 min,
+  `kind: appointment`, `data.mode: 'in-person'`, read via `GET /api/sites/gp/appointments?date=`).
   Don't book another on top: **cancel and rebook as telephone** to honour "avoid
-  unnecessary travel" (`cancel_appointment` + `book_appointment`, UNTESTED — check
-  schemas), or book the post-discharge review a week out.
+  unnecessary travel". VERIFIED (scratch world, 12 Sep): `cancel_appointment`
+  (`resourceId` + `expectedVersion`) → `create_appointment_session` (`title, clinician,
+  location, startsAt, endsAt, slotMinutes, mode: 'telephone'`) → `book_appointment`
+  (`sessionId, sessionVersion, startsAt, patientId, title`) → the new appointment reads
+  back `booked` with `mode: 'telephone'` in the GP view. Implemented best-effort in
+  `resolveFollowUp`, gated on the goal; the GP task remains the verified deliverable.
 - Needs: "Home visit", "Carer involvement". Goals: "Stay at home with a clear
   contact for help", "Avoid unnecessary travel".
 
@@ -253,8 +262,11 @@ already-verified items on re-run.
    only.
 2. **Medicines** (pharmacy): furosemide approved, not dispensed. The prescription is
    already approved, so the chain starts at **`link_prescription_stock` →
-   `dispense` → `collect`** — review/accept shouldn't be needed. UNTESTED: pull
-   payloads from openapi (`pharmacyCommand` enum exists) and smoke-test first.
+   `dispense` → `collect`** — review/accept are not needed. VERIFIED live (see
+   `resolveMedicines`): `link_prescription_stock` takes `productId` + `quantity`
+   (units, from the `pharmacy-product` catalogue in the pharmacy view), each step
+   re-uses the version the previous step returned, and the prescription ends
+   `collected` with the catalogue stock drawn down.
 3. **Monitoring bloods** (diagnostics): routine U&E + FBC, LLM-written
    clinicalDetails citing eGFR 49 and the neutrophil recovery. Verified mechanism.
 4. **Home monitoring** (wearables): `connect_device`; verify a reading exists.
@@ -263,9 +275,10 @@ already-verified items on re-run.
    Verified.
 6. **Information** (hospital→GP/community): LLM drafts all seven sections including
    the med-rec the letter chases → `save_discharge_summary` → `process_document`
-   send (verified) → `share_record` to community (UNTESTED).
+   send (verified) → `share_record` of the cited hospital document to community
+   (verified; the summary itself cannot be shared).
 7. **Follow-up** (GP): `create_task` 48h review (verified) + rebook today's 08:15
-   in-person as telephone (UNTESTED).
+   in-person as telephone (verified, see above).
 
 Finale: clinician clears the hold on screen → attendance already `inpatient` from
 setup → `discharge` with disposition → show the sim's own four apps: hospital
@@ -308,7 +321,7 @@ agent's worklist.
 | M2 | **Minimal web ward list** (rows, colours, evidence) | 1h | A screen — never demo scrolling JSON |
 | M3 | Resolvers+verifiers for verified items (3,4,5,6-send,7-task) + 121-min advance | 2h | Checklist goes green live |
 | M4 | Clinical hold UI gate + admission setup + discharge finale | 1.5h | Full Amira arc |
-| M5 | Pharmacy chain, rebook-as-telephone, share_record (the UNTESTED trio) | 1h | All seven items real |
+| M5 | Pharmacy chain, rebook-as-telephone, share_record (all three now verified live) | 1h | All seven items real |
 | M6 | Eleanor `blocked_human` + audit trail polish | 1h | The "knows when to stop" beat |
 
 **Record the submission video as soon as M3 works** (mandatory: problem, product,
