@@ -225,7 +225,14 @@ function render(s) {
         (i.state === 'blocked_human' && !i.escalation
           ? '<span class="right"><button class="confirm" onclick="escalate(\\'' + i.id + '\\')">Prepare escalation</button></span>'
           : '') +
-        '</div>').join('') + '</div></div>'
+        '</div>').join('') +
+      ((p.insights || []).length
+        ? p.insights.map((n) =>
+            '<div class="item"><span class="chip"><span class="dot" style="background:var(--accent)"></span>Agent noted</span>' +
+            '<span class="owner">reading</span><span><span class="title">' + esc(n.title) + '</span>' +
+            (n.quote ? ' <span class="evidence">&ldquo;' + q(n.quote) + '&rdquo;</span>' : '') +
+            ' <span class="evidence">(non-blocking)</span></span></div>').join('')
+        : '') + '</div></div>'
   }).join('')
 
   document.getElementById('services').innerHTML = Object.entries(SERVICES).map(([key, name]) => {

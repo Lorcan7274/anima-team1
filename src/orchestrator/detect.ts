@@ -184,6 +184,11 @@ export async function detectForPatient(
   if (carePackage) {
     const carePlan = res(community).find((r) => r.kind === 'care-plan' && r.status === 'open')
     const trend = res(community).find((r) => r.kind === 'observation' && (r.data as any)?.baseline != null)
+    const summaryItem = items.find((i) => i.id === slug('summary'))
+    if (summaryItem) {
+      summaryItem.draftOnly = true
+      summaryItem.title = 'Discharge summary pre-drafted only — held while the case is blocked'
+    }
     items.push({
       id: slug('care-package'),
       patientId: P,
@@ -217,7 +222,11 @@ export async function detectForPatient(
           if (!target.evidence.some((e) => e.quote === quote)) target.evidence.push(ev('record-text', 'hospital', quote))
         }
       } else {
-        log?.(`llm proposal (unmatched, not blocking): ${prop.title} — "${prop.quotes[0] ?? ''}"`)
+        patient.insights ??= []
+        if (!patient.insights.some((x) => x.title === prop.title)) {
+          patient.insights.push({ title: prop.title, quote: prop.quotes[0] ?? '' })
+          log?.(`agent reading noted (non-blocking): ${prop.title}`)
+        }
       }
     }
   }

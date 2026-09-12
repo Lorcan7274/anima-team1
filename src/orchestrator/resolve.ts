@@ -75,6 +75,11 @@ const resolveSummary: Resolver = async (ctx, item) => {
     { type: 'save_discharge_summary', patientId: item.patientId, title: `Discharge summary - ${row?.name ?? item.patientId}`, dischargeSections: sections },
     key(ctx, item, 'save'),
   )
+  if (item.draftOnly) {
+    // Blocked case: the letter is prepared but NOT sent — a clinician would
+    // rightly ask why a discharge letter went out for a patient not leaving.
+    return { action: 'save_discharge_summary (draft held)', resourceId: saved.id, idempotencyKey: key(ctx, item, 'save'), atSimTime: await simNow(ctx) }
+  }
   await ctx.sim.siteAction(
     'hospital',
     { type: 'process_document', patientId: item.patientId, resourceId: saved.id, expectedVersion: saved.version, documentCommand: 'send' },
@@ -97,13 +102,36 @@ const resolveFollowUp: Resolver = async (ctx, item) => {
   return { action: 'create_task', resourceId: task.id, idempotencyKey: key(ctx, item, 'task'), atSimTime: await simNow(ctx) }
 }
 
-/** UNTESTED pharmacy chain — throws so the item shows 'failed' in the UI until built. */
-const resolveMedicines: Resolver = async () => {
-  // TODO(team): prescription is already 'approved', so the chain should be
-  // link_prescription_stock -> dispense -> collect on the pharmacy site.
-  // Pull payloads from /api/openapi.json (pharmacyCommand enum) and smoke-test
-  // in a scratch world before wiring here.
-  throw new Error('medicines resolver not implemented yet (pharmacy chain untested)')
+/**
+ * Pharmacy chain, verified live: link_prescription_stock (productId + quantity)
+ * -> dispense -> collect. The prescription reaches status 'collected' and the
+ * catalogue stock draws down. Each step re-uses the version the previous step
+ * returned.
+ */
+const resolveMedicines: Resolver = async (ctx, item) => {
+  const view = await ctx.sim.siteView('pharmacy', { patient: item.patientId, limit: 60 })
+  const resources = (view.resources ?? []) as any[]
+  const rx = resources.find((r) => r.kind === 'prescription' && r.status === 'approved')
+  if (!rx) throw new Error('no approved prescription found in pharmacy view')
+  const product = resources.find(
+    (r) => r.kind === 'pharmacy-product' && (r.data?.drug ?? '') === (rx.data?.drug ?? ''),
+  )
+  if (!product) throw new Error(`no catalogue product matches drug "${rx.data?.drug}"`)
+  if ((product.data?.stock ?? 0) < (product.data?.packSize ?? 1)) {
+    throw new Error(`insufficient stock for ${product.data?.drug} (${product.data?.stock} units)`)
+  }
+  let cur = await ctx.sim.siteAction('pharmacy', {
+    type: 'link_prescription_stock', patientId: item.patientId,
+    resourceId: rx.id, expectedVersion: rx.version,
+    productId: product.id, quantity: product.data?.packSize ?? 28,
+  }, key(ctx, item, 'link'))
+  cur = await ctx.sim.siteAction('pharmacy', {
+    type: 'dispense', patientId: item.patientId, resourceId: cur.id, expectedVersion: cur.version,
+  }, key(ctx, item, 'dispense'))
+  cur = await ctx.sim.siteAction('pharmacy', {
+    type: 'collect', patientId: item.patientId, resourceId: cur.id, expectedVersion: cur.version,
+  }, key(ctx, item, 'collect'))
+  return { action: 'link+dispense+collect', resourceId: cur.id, idempotencyKey: key(ctx, item, 'link'), atSimTime: await simNow(ctx) }
 }
 
 /** item.id suffix -> resolver. clinical_hold / blocked_human items have none by design. */

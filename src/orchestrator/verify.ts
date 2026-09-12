@@ -17,7 +17,7 @@ interface SimResource {
 
 async function findInView(
   ctx: OrchestratorContext,
-  site: 'diagnostics' | 'community' | 'wearables' | 'gp',
+  site: 'diagnostics' | 'community' | 'wearables' | 'gp' | 'pharmacy' | 'hospital',
   patientId: string,
   resourceId: string,
 ): Promise<SimResource | undefined> {
@@ -58,8 +58,16 @@ const verifyVisit: Verifier = async (ctx, item) => {
   return verdict(ctx, r?.status === 'completed', r ? `visit ${r.id} status=${r.status}` : 'visit not found')
 }
 
-/** Our summary (by id) must show as sent in the GP's own documents feed. */
+/**
+ * Our summary (by id) must show as sent in the GP's own documents feed —
+ * unless the item is draft-only (blocked case), where the draft existing on
+ * the hospital side is the correct end state.
+ */
 const verifySummary: Verifier = async (ctx, item) => {
+  if (item.draftOnly) {
+    const r = await findInView(ctx, 'hospital', item.patientId, item.resolution!.resourceId)
+    return verdict(ctx, !!r && r.status !== 'sent', r ? `summary ${r.id} held as ${r.status} (deliberately unsent)` : 'draft not found')
+  }
   const d = (await ctx.sim.gpDocuments()) as { documents?: SimResource[]; items?: SimResource[]; resources?: SimResource[] }
   const docs = d.documents ?? d.items ?? d.resources ?? []
   const mine = docs.find((x) => x.id === item.resolution!.resourceId)
@@ -72,10 +80,10 @@ const verifyFollowUp: Verifier = async (ctx, item) => {
   return verdict(ctx, !!r, r ? `task ${r.id} status=${r.status} on GP worklist` : 'task not found')
 }
 
-/** UNTESTED until the pharmacy resolver exists: collected is the observable end state. */
+/** Collected is the observable end state, read from the pharmacy's own view. */
 const verifyMedicines: Verifier = async (ctx, item) => {
-  const r = await findInView(ctx, 'community', item.patientId, item.resolution!.resourceId)
-  return verdict(ctx, r?.status === 'collected', `TODO pharmacy verify; saw status=${r?.status}`)
+  const r = await findInView(ctx, 'pharmacy', item.patientId, item.resolution!.resourceId)
+  return verdict(ctx, r?.status === 'collected', r ? `prescription ${r.id} status=${r.status}` : 'prescription not found')
 }
 
 export function verifierFor(item: ChecklistItem): Verifier | undefined {

@@ -72,6 +72,8 @@ export interface ChecklistItem {
   verification?: Verification
   /** For clinical_hold / blocked_human: why automation must stop. */
   humanReason?: string
+  /** Summary items on blocked patients: save the draft but never send it. */
+  draftOnly?: boolean
   /** Prepared handover for a blocked_human item; the case STAYS blocked. */
   escalation?: { responsibleTeam: string; nextAction: string; note: string }
   error?: string
@@ -83,6 +85,8 @@ export interface PatientRow {
   conditions: string[]
   needs: string[]
   goals: string[]
+  /** Non-blocking observations from the model's reading of the record. */
+  insights?: Array<{ title: string; quote: string }>
   /** hospital attendance stage: waiting | assessing | take | inpatient | discharged */
   stage?: string
   location?: string

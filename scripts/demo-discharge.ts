@@ -12,9 +12,9 @@
  * fallback-board.json after each phase (serve offline via scripts/serve-fallback.ts).
  * Stage demo: run with a brand-new unguessable world minutes before demoing.
  */
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '../src/orchestrator/world.ts'
-import { approveAll, buildBoard, detectAll, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
+import { approveAll, buildBoard, clearHold, detectAll, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
 import type { OrchestratorContext } from '../src/orchestrator/model.ts'
 import { startUi } from '../src/ui/server.ts'
 
@@ -40,6 +40,22 @@ await admitToWard(sim, ELEANOR, 'AMU bed 1')
 
 // --- Board + detection ------------------------------------------------------
 const board = await buildBoard(sim, world, [AMIRA, ELEANOR])
+
+// Safe re-run: restore item state from the last snapshot when it is the SAME
+// world. Settled items stay settled, so nothing is re-resolved or duplicated.
+if (existsSync('fallback-board.json')) {
+  try {
+    const snap = JSON.parse(readFileSync('fallback-board.json', 'utf8'))
+    if (snap.world === world) {
+      for (const sp of snap.patients ?? []) {
+        const row = board.patients.find((p) => p.patientId === sp.patientId)
+        if (row) { row.items = sp.items ?? []; row.insights = sp.insights }
+      }
+      board.log = [...(snap.log ?? []), '(state restored from snapshot — safe re-run)']
+      console.log('restored prior state for this world from fallback-board.json')
+    }
+  } catch { /* unreadable snapshot: start fresh */ }
+}
 const ctx: OrchestratorContext = {
   sim,
   world,
@@ -80,6 +96,20 @@ if (flag('detect-only')) {
 
   // --- Resolve -> advance -> verify loop ------------------------------------
   await runUntilSettled(ctx)
+  snapshot()
+
+  // --- Clinical holds: a human must clear them ------------------------------
+  const holds = () => board.patients.flatMap((p) => p.items).filter((i) => i.state === 'clinical_hold')
+  if (holds().length) {
+    if (flag('clear-holds')) {
+      for (const h of holds()) { clearHold(board, h.id, 'Simulated clinician (--clear-holds)'); ctx.log(`hold ${h.id} cleared by simulated clinician`) }
+    } else if (!flag('no-ui')) {
+      console.log('\nwaiting for the clinician to press "Confirm reviewed" in the UI (or re-run with --clear-holds)...')
+      while (holds().length) await new Promise((r) => setTimeout(r, 2000))
+    } else {
+      ctx.log(`${holds().length} clinical hold(s) remain — headless run without --clear-holds, not discharging`)
+    }
+  }
   snapshot()
 
   // --- Finale: discharge whoever is fully green ------------------------------
