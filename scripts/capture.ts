@@ -13,6 +13,11 @@ import { join } from 'node:path'
 import { SimApiError, SimClient } from '../src/sim/index.ts'
 
 const client = SimClient.fromEnv()
+if (!client.apiKey) {
+  console.error('No team key found. Export SIM_KEY, put it in .env, or run with SIM_KEY=<key> node scripts/capture.ts')
+  process.exit(1)
+}
+console.log(`Using ${client.http.origin} with key ending ...${client.apiKey.slice(-4)}`)
 const outDir = join(import.meta.dirname, '..', 'fixtures')
 await mkdir(outDir, { recursive: true })
 

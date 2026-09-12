@@ -9,6 +9,9 @@
  *   SIM_ORIGIN=https://sim.animahacks.com SIM_KEY=... node scripts/quickstart.ts
  *   node scripts/quickstart.ts --create-team "Example builders"
  *   node scripts/quickstart.ts --patient SIM-000002 --title "Review bloods"
+ *   node scripts/quickstart.ts --key <team key> --origin http://localhost:8080
+ *
+ * A .env file in the current directory is loaded automatically.
  */
 import { parseArgs } from 'node:util'
 import { SimApiError, SimClient } from '../src/sim/index.ts'
@@ -16,18 +19,28 @@ import { SimApiError, SimClient } from '../src/sim/index.ts'
 const { values } = parseArgs({
   options: {
     'create-team': { type: 'string' },
+    key: { type: 'string' },
+    origin: { type: 'string' },
     patient: { type: 'string', default: 'SIM-000001' },
     title: { type: 'string', default: 'Check discharge follow-up' },
     'idempotency-key': { type: 'string', default: 'first-gp-task' },
   },
 })
 
-let client = SimClient.fromEnv()
+let client = SimClient.fromEnv(process.env, {
+  ...(values.key ? { apiKey: values.key } : {}),
+  ...(values.origin ? { origin: values.origin } : {}),
+})
 
 if (!client.apiKey && !values['create-team']) {
-  console.error('Set SIM_KEY to your team key, or pass --create-team "Team name" to create one.')
+  console.error('No team key found. Either:')
+  console.error('  export SIM_KEY=<your key>        (export, not just SIM_KEY=...)')
+  console.error('  put SIM_KEY=<your key> in .env    (loaded automatically)')
+  console.error('  node scripts/quickstart.ts --key <your key>')
+  console.error('  node scripts/quickstart.ts --create-team "Team name"')
   process.exit(1)
 }
+console.log(`Using ${client.http.origin} with key ending ...${client.apiKey?.slice(-4) ?? 'none'}`)
 
 if (values['create-team']) {
   const created = await client.createTeam(values['create-team'])
