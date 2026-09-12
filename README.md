@@ -1,4 +1,4 @@
-# Homeward — discharge-readiness orchestrator
+# Homeward, discharge-readiness orchestrator
 
 Built at the OpenAI × Anima Healthtech Hackathon (12 Sep 2026, Team 1) on the
 [NHS-SIM](https://sim.animahacks.com/docs/) synthetic healthcare simulator.
@@ -9,11 +9,11 @@ outside the hospital are not lined up. Homeward is a neighbourhood discharge des
 per patient it **detects** discharge barriers from the record with quoted evidence,
 **resolves** each one by acting in the owning service through the API, **verifies**
 after time moves by re-reading the specific resource it created, and **stops for a
-human** where it must — a clinical hold only a clinician can clear, an external
+human** where it must, a clinical hold only a clinician can clear, an external
 decision (care-package funding) no API can make.
 
 The model boundary is explicit: the LLM (Anima ADK, OpenAI provider) reads free text
-and writes prose — barrier proposals with verbatim quotes, the seven discharge-summary
+and writes prose, barrier proposals with verbatim quotes, the seven discharge-summary
 sections, lab-request clinical details, escalation handovers. Deterministic code
 acts, advances the clock, verifies and drives the state machine.
 
@@ -27,7 +27,7 @@ cp .env.example .env       # SIM_KEY (team key), OPENAI_API_KEY (optional), OPEN
 ```
 
 Without `OPENAI_API_KEY` every model call falls back to a canned draft and the UI
-labels it as such — nothing silently pretends to be the model.
+labels it as such, nothing silently pretends to be the model.
 
 **World discipline.** `POST /api/keys {teamName}` creates *or joins* a world, so team
 names are join codes. The demo runner mints an unguessable `discharge-<hex>` world by
@@ -50,25 +50,25 @@ What happens (`scripts/demo-discharge.ts`):
 2. **Detect** builds the checklist per patient: rule-based readers over the sim views plus
    a model pass over the record's free text; every quote is located in the record
    before it is shown.
-3. **Approve** — the runner waits for *Approve plan* in the UI (staff approval of the
+3. **Approve**, the runner waits for *Approve plan* in the UI (staff approval of the
    operational plan). Clinical holds and external decisions are never approvable.
 4. **Resolve → advance 121 sim-minutes → verify**, up to three rounds. Each verifier
    re-reads only the resource its resolver created (the seeded world contains an old
    `sent` summary, old visits and tasks that would fool a lazy check).
-5. **Clinical hold** — the runner waits for *Confirm reviewed* in the UI; that is the
+5. **Clinical hold**, the runner waits for *Confirm reviewed* in the UI; that is the
    only way a hold clears, and it is recorded in the audit trail.
 6. **Discharge** whoever is fully green; Eleanor stays blocked on the funding decision
    with a prepared escalation handover (the "knows when to stop" beat).
 
 Every simulator request lands in the UI's trace (method, payload, idempotency key,
-response) — that is the compliance record shown to judges. Board snapshots are written
+response), that is the compliance record shown to judges. Board snapshots are written
 to `fallback-board.json` after each phase.
 
 ### The UI (`src/ui/server.ts`)
 
 One page served by `node:http` on `localhost:4600`, polling `/state`:
 
-- **Left — the work.** KPI tiles (click for detail), a card per patient with the
+- **Left, the work.** KPI tiles (click for detail), a card per patient with the
   barrier dependency graph, click any task for its story: record evidence, plan and
   approval, every call the agent made to the owning service, drafting provenance
   (model vs fallback), independent verification, escalation.
@@ -81,7 +81,7 @@ One page served by `node:http` on `localhost:4600`, polling `/state`:
 For a second laptop at the stall. Its own throwaway world, running unattended for as
 long as you leave it: every tick advances the simulator clock, ingests the new A&E
 arrivals the simulator generates (about 6–8 per sim-hour, each a synthetic patient
-with a record), and moves every person one station along with real actions — assign
+with a record), and moves every person one station along with real actions, assign
 and assess in A&E, home from A&E or refer to the take, admit when a ward bed is free,
 the discharge checklist through the same resolvers and verifiers as the ward-round
 demo, discharge when everything is verified.
@@ -117,7 +117,7 @@ walked through if the shared simulator is down.
 ## Checks
 
 ```bash
-npm test            # unit + invariant tests, mocked fetch / fake sim — no network or key needed
+npm test            # unit + invariant tests, mocked fetch / fake sim, no network or key needed
 npm run evals       # the same suite; engine invariants live in test/invariants.test.ts
 npm run typecheck
 ```
@@ -136,7 +136,7 @@ scripts/serve-fallback.ts         offline UI from a snapshot
 scripts/flow-sim.ts               the second screen: a whole ward running unattended
 scripts/quickstart.ts             handbook quickstart against a team world
 scripts/capture.ts                record read-only responses into fixtures/
-src/orchestrator/model.ts         ChecklistItem / PatientRow / BoardState — the meeting point of all workstreams
+src/orchestrator/model.ts         ChecklistItem / PatientRow / BoardState, the meeting point of all workstreams
 src/orchestrator/detect.ts        rule-based readers + model free-text pass → items with quoted evidence
 src/orchestrator/llm.ts           the model boundary (ADK + OpenAI, Zod-typed, honest fallbacks)
 src/orchestrator/resolve.ts       one resolver per item type; acts in the owning service
@@ -181,7 +181,7 @@ Mutating calls take an idempotency key; a retry with the same key and payload re
 the original result. Updates to existing records need `resourceId` + `expectedVersion`.
 Failed calls throw `SimApiError` with the HTTP status and parsed body. Requests time
 out after `SIM_TIMEOUT_MS` (default 45 s) and every request is reported to an optional
-`trace` callback — the UI's wire trace.
+`trace` callback, the UI's wire trace.
 
 `node scripts/quickstart.ts --create-team "Name"` reproduces the handbook quickstart;
 `node scripts/capture.ts` records read-only responses (keys redacted) into `fixtures/`.

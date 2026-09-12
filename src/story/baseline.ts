@@ -1,5 +1,5 @@
 /**
- * "Today's ward" — an ILLUSTRATIVE model of the same discharge checklist run
+ * "Today's ward", an ILLUSTRATIVE model of the same discharge checklist run
  * by hand, used for the story panel's baseline lane. It is not a measurement
  * of any real ward and the UI must say so.
  *
@@ -10,7 +10,7 @@
  * poll misses the job with a fixed probability (seeded RNG, so the same
  * patient always gets the same story). The bed is freed at the first ward
  * round after the last item is done. A barrier that needs an external human
- * decision never completes in either lane — the model is honest about that.
+ * decision never completes in either lane, the model is honest about that.
  *
  * All parameters are here in one place so a judge can read them.
  */
@@ -136,7 +136,7 @@ export function baselineFor(row: PatientRow, fitAt: number, params: BaselinePara
         // An external decision nobody on the ward can make: never completes.
         const startAt = depTimes.every((t) => t !== null) ? Math.max(fitAt, ...(depTimes as number[])) : fitAt
         out.push({ id: item.id, kind, owner: item.owner, startAt, pickedUpAt: null, doneAt: null, missedPolls: 0,
-          note: item.state === 'blocked_human' ? 'external decision — never completes on its own' : 'waits on a job that never completes' })
+          note: item.state === 'blocked_human' ? 'external decision, never completes on its own' : 'waits on a job that never completes' })
         done.set(kind, null)
         continue
       }

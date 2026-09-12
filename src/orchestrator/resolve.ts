@@ -1,7 +1,7 @@
 /**
  * Resolvers: one per checklist item type. A resolver ACTS in the owning service
  * and returns the Resolution (action + created resourceId + idempotency key).
- * It never marks anything verified — that's verify.ts, after time moves.
+ * It never marks anything verified, that's verify.ts, after time moves.
  *
  * Verified mechanics (see brief): siteAction targets use resourceId +
  * expectedVersion; idempotency keys are per-attempt.
@@ -14,7 +14,7 @@ type Resolver = (ctx: OrchestratorContext, item: ChecklistItem) => Promise<Resol
 
 /**
  * Idempotency key: world, run, item, step, attempt. The run id makes a fresh
- * process (no snapshot to restore) send new keys — the model rewrites every
+ * process (no snapshot to restore) send new keys, the model rewrites every
  * payload, and the simulator rejects an old key with a different body.
  */
 const key = (ctx: OrchestratorContext, item: ChecklistItem, step: string) =>
@@ -89,7 +89,7 @@ const resolveSummary: Resolver = async (ctx, item) => {
     key(ctx, item, 'save'),
   )
   if (item.draftOnly) {
-    // Blocked case: the letter is prepared but NOT sent — a clinician would
+    // Blocked case: the letter is prepared but NOT sent, a clinician would
     // rightly ask why a discharge letter went out for a patient not leaving.
     return { action: 'save_discharge_summary (draft held)', resourceId: saved.id, idempotencyKey: key(ctx, item, 'save'), atSimTime: await simNow(ctx) }
   }
@@ -160,7 +160,7 @@ const DAY = 24 * 60 * 60_000
 
 /**
  * Honour "avoid unnecessary travel": book a telephone review for tomorrow,
- * then cancel today's in-person appointment. Booking comes FIRST — a patient
+ * then cancel today's in-person appointment. Booking comes FIRST, a patient
  * must never be left with no appointment because the telephone booking
  * failed. Prefers a free slot in an existing telephone session (the seeded
  * practice runs one); only creates a session when none exists.
@@ -217,7 +217,7 @@ async function rebookAsTelephone(ctx: OrchestratorContext, item: ChecklistItem):
         { type: 'cancel_appointment', patientId: P, resourceId: appt.id, expectedVersion: appt.version },
         key(ctx, item, `cancel-${appt.id}`),
       )
-      ctx.log(`cancelled in-person appointment ${appt.id} (${new Date(appt.data?.startsAt ?? 0).toISOString().slice(11, 16)}) — replaced by telephone review ${booked.id}`)
+      ctx.log(`cancelled in-person appointment ${appt.id} (${new Date(appt.data?.startsAt ?? 0).toISOString().slice(11, 16)}), replaced by telephone review ${booked.id}`)
     }
   } catch (err) {
     ctx.log(`could not cancel the in-person appointment (patient keeps both; non-fatal): ${String((err as Error).message).slice(0, 140)}`)
@@ -298,7 +298,7 @@ const resolveMedicines: Resolver = async (ctx, item) => {
 /**
  * The steps a resolver will take for an item, then what the verifier will
  * require, in plain words. Shown at "Review plan" before anything is approved.
- * Keep in step with the resolvers above — this is their contract with staff.
+ * Keep in step with the resolvers above, this is their contract with staff.
  */
 export function planFor(item: ChecklistItem): string[] | undefined {
   const rx = item.evidence.find((e) => e.site === 'hospital' && /prescription|medication supply/i.test(e.quote))

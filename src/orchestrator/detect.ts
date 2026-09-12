@@ -49,7 +49,7 @@ export async function bloodSummary(sim: SimClient, patientId: string): Promise<s
   const fbc = latestOf('fbc')
   // History is computed from this patient's own FBC series: the lowest
   // neutrophil count on record, when it was, and whether it has recovered.
-  // Nothing here is a template — a patient without a dip gets no sentence.
+  // Nothing here is a template, a patient without a dip gets no sentence.
   const history = neutrophilHistory(reports.filter((r) => (r.data as any)?.panel?.id === 'fbc'), fbc)
   return (
     `Latest U&E: ${fmt(ue, ['potassium', 'creatinine', 'egfr'])}. ` +
@@ -107,7 +107,7 @@ export async function detectForPatient(
     items.push({
       id: slug('clinical-hold'),
       patientId: P,
-      title: 'Clinical review outstanding — discharge gated on clinician sign-off',
+      title: 'Clinical review outstanding: discharge gated on clinician sign-off',
       owner: 'clinician',
       state: 'clinical_hold',
       humanReason: `Open urgent thread: "${respThread.title}". Automation must not clear this.`,
@@ -132,7 +132,7 @@ export async function detectForPatient(
   // 3. Monitoring bloods: the seeded document literally requests it.
   const monitoringDoc = hospRes.find((r) => r.kind === 'document' && /monitoring/i.test((r.data as any)?.text ?? ''))
   const docText = String((monitoringDoc?.data as any)?.text ?? '')
-  /** Real clause from the document containing the keyword — never a hardcoded string. */
+  /** Real clause from the document containing the keyword, never a hardcoded string. */
   const clauseWith = (keyword: string): string => {
     const m = docText.match(new RegExp(`[^.;]*${keyword}[^.;]*`, 'i'))
     return (m?.[0] ?? docText.slice(0, 120)).trim()
@@ -178,7 +178,7 @@ export async function detectForPatient(
   }
 
   // 6. Information: no discharge summary drafted by us this admission.
-  //    NOTE the seeded world contains an old 'sent' summary for Amira — we only
+  //    NOTE the seeded world contains an old 'sent' summary for Amira, we only
   //    treat OUR resolver's resource as satisfying this (verifier rule), so the
   //    item is always detected until our own summary is verified sent.
   items.push({
@@ -196,7 +196,7 @@ export async function detectForPatient(
   items.push({
     id: slug('follow-up'),
     patientId: P,
-    title: `GP follow-up not arranged${avoidTravel ? ' (telephone — patient goal: avoid travel)' : ''}`,
+    title: `GP follow-up not arranged${avoidTravel ? ' (telephone, patient goal: avoid travel)' : ''}`,
     owner: 'gp',
     state: 'proposed',
       proposedAction: 'Create a 48h telephone review task for the GP',
@@ -214,12 +214,12 @@ export async function detectForPatient(
     const summaryItem = items.find((i) => i.id === slug('summary'))
     if (summaryItem) {
       summaryItem.draftOnly = true
-      summaryItem.title = 'Discharge summary pre-drafted only — held while the case is blocked'
+      summaryItem.title = 'Discharge summary pre-drafted only: held while the case is blocked'
     }
     items.push({
       id: slug('care-package'),
       patientId: P,
-      title: 'Care package awaiting funding decision — needs a human',
+      title: 'Care package awaiting funding decision: needs a human',
       owner: 'community',
       state: 'blocked_human',
       humanReason: 'Funding approval is an external decision; no API action can clear it.',
@@ -235,16 +235,16 @@ export async function detectForPatient(
 
   // LLM pass: read the record's free text and merge proposals into the
   // rule-detected items as extra evidence. Every quote must be LOCATED in the
-  // actual record before it is cited — a hallucinated line must never render
+  // actual record before it is cited, a hallucinated line must never render
   // as a record quote. Unlocatable quotes are dropped and counted.
   const sources = hospRes
     .filter((r) => r.kind === 'document' || r.kind === 'message')
-    .map((r) => ({ id: r.id, haystack: `${r.title ?? ''} — ${String((r.data as any)?.text ?? '')}`.toLowerCase() }))
+    .map((r) => ({ id: r.id, haystack: `${r.title ?? ''}: ${String((r.data as any)?.text ?? '')}`.toLowerCase() }))
   const locateQuote = (quote: string): string | undefined =>
     sources.find((src) => src.haystack.includes(quote.trim().toLowerCase()))?.id
   const freeText = hospRes
     .filter((r) => r.kind === 'document' || r.kind === 'message')
-    .map((r) => `[${r.kind} ${r.id}] ${r.title ?? ''} — ${(r.data as any)?.text ?? ''}`)
+    .map((r) => `[${r.kind} ${r.id}] ${r.title ?? ''}: ${(r.data as any)?.text ?? ''}`)
     .join('\n')
   if (freeText.trim()) {
     const { barriers: proposals } = await proposeBarriersFromText(`hospital record for ${P}`, freeText)
@@ -314,7 +314,7 @@ export async function refreshStage(sim: SimClient, row: PatientRow): Promise<voi
  * bloods (diagnostics), activity vs baseline (wearables), home access and
  * carer availability (community care plan), prescriptions (pharmacy).
  * Every fact names its source so the banner never asserts more than the
- * record does. No interpretation — that would be clinical judgement.
+ * record does. No interpretation, that would be clinical judgement.
  */
 export async function loadProfile(sim: SimClient, patientId: string, birthDate: string | undefined, att: SimResource | undefined): Promise<PatientProfile> {
   const [gp, dx, wear, comm, pharm] = await Promise.all([

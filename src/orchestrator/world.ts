@@ -14,11 +14,11 @@ loadDotEnv()
 const ORIGIN = process.env.SIM_ORIGIN?.replace(/\/+$/, '') || 'https://sim.animahealth.com'
 
 export function randomWorldName(): string {
-  // Team names are JOIN CODES — anyone who guesses one can enter the world.
+  // Team names are JOIN CODES, anyone who guesses one can enter the world.
   return `discharge-${randomBytes(6).toString('hex')}`
 }
 
-/** Connect with a known key — no /api/keys call. The outage-proof path. */
+/** Connect with a known key, no /api/keys call. The outage-proof path. */
 export function connectWorld(
   worldName: string,
   apiKey: string,
@@ -73,7 +73,7 @@ export async function admitToWard(sim: SimClient, patientId: string, location: s
     if (!att) throw new Error(`no attendance for ${patientId}`)
     const stage = att.data?.stage ?? 'waiting'
     if (ORDER.indexOf(stage) >= ORDER.indexOf('inpatient')) return
-    // 'assign' does not change the stage (still waiting) — detect by clinician set.
+    // 'assign' does not change the stage (still waiting), detect by clinician set.
     const step = stage === 'waiting' && (att.data as any)?.clinician !== 'Unassigned' ? NEXT['assigned'] : NEXT[stage]
     if (!step) throw new Error(`no next step from stage ${stage}`)
     await stageStep(sim, patientId, att, step[0], step[1], `setup-${patientId}`)

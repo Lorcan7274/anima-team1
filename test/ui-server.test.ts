@@ -95,3 +95,25 @@ test('mutating routes reject GET', async () => {
     assert.equal(r.headers.get('content-type'), 'text/html', `${path} over GET falls through to the page`)
   }
 })
+
+test('POST /undo-hold reinstates a confirmed hold, and refuses anything else', async () => {
+  const hold = board.patients[0].items[0]
+  assert.equal(hold.state, 'verified', 'cleared by the earlier test')
+  assert.equal((await post('/undo-hold?item=sim-000001-visit')).status, 409)
+  const r = await post('/undo-hold?item=sim-000001-clinical-hold')
+  assert.equal(r.status, 200)
+  assert.equal(hold.state, 'clinical_hold')
+  assert.equal((await post('/undo-hold?item=sim-000001-clinical-hold')).status, 409, 'already reinstated')
+})
+
+test('GET /resource reads a record from the simulator, or says the simulator is not connected', async () => {
+  assert.equal((await fetch(`${await origin}/resource?site=hospital&patient=SIM-000001&id=r-6`)).status, 503, 'this server has no simulator')
+  const fakeSim = { siteView: async () => ({ resources: [{ id: 'r-6', kind: 'message', title: 'Respiratory: review', status: 'open', data: { text: 'Please review.' } }] }) }
+  const server = startUi({ world: 'w', simNow: 0, patients: [], log: [] }, 0, () => fakeSim as any)
+  servers.push(server)
+  const base = await new Promise<string>((resolve) => server.once('listening', () => resolve(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)))
+  const ok = await fetch(`${base}/resource?site=hospital&patient=SIM-000001&id=r-6`)
+  assert.equal(ok.status, 200)
+  assert.equal((await ok.json()).data.text, 'Please review.')
+  assert.equal((await fetch(`${base}/resource?site=hospital&patient=SIM-000001&id=r-99`)).status, 404)
+})
