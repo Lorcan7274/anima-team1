@@ -134,6 +134,8 @@ export function ingest(state: FlowState, resources: any[], patients: any[]): Flo
       const simFlow = flowOfSim(stage)
       if (stageOrder[stage] > stageOrder[known.flow === 'ward' ? 'inpatient' : known.flow === 'home' ? 'discharged' : known.flow]) {
         known.flow = simFlow
+        if (simFlow === 'assessing') known.assessedAt ??= state.simNow
+        if (simFlow === 'take' || simFlow === 'ward') known.takeAt ??= state.simNow
         if (simFlow === 'ward' && !known.admittedAt) admit(state, known, state.simNow, bedNumber(a.data?.location))
         if (simFlow === 'home' && !known.dischargedAt) { known.dischargedAt = state.simNow; known.homeFrom = known.admittedAt ? 'ward' : 'ae' }
       }
@@ -168,7 +170,7 @@ export function ingest(state: FlowState, resources: any[], patients: any[]): Flo
     p.items = checklistFor(p)
     const model = baselineFor({ ...p, items: p.items }, 0)
     p.modelAfterFit = model.homeAt
-    if (p.flow === 'take') p.takeAt = state.simNow
+    if (p.flow === 'take' || p.flow === 'ward') p.takeAt = state.simNow
     if (p.flow === 'assessing') p.assessedAt = state.simNow
     if (p.flow === 'ward') admit(state, p, state.simNow, bedNumber(a.data?.location))
     state.patients.push(p)
@@ -220,8 +222,14 @@ export async function stepPerson(ctx: FlowCtx, p: FlowPerson): Promise<void> {
   const now = state.simNow
   try {
     if (p.flow === 'waiting') {
-      await attendanceAction(ctx, p, 'assign', { clinician: 'Dr Ada Sim' })
-      await attendanceAction(ctx, p, 'assess', { clinician: 'Dr Ada Sim' })
+      try {
+        await attendanceAction(ctx, p, 'assess', { clinician: 'Dr Ada Sim' })
+      } catch (err) {
+        const status = (err as { status?: number }).status ?? 0
+        if (status < 400 || status >= 500) throw err
+        await attendanceAction(ctx, p, 'assign', { clinician: 'Dr Ada Sim' })
+        await attendanceAction(ctx, p, 'assess', { clinician: 'Dr Ada Sim' })
+      }
       p.flow = 'assessing'
       p.assessedAt = now
     } else if (p.flow === 'assessing') {
