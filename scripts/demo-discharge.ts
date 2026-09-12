@@ -38,7 +38,7 @@ console.log(`world: ${worldName}`)
 // Serve the UI immediately with an empty board, it fills in live as setup
 // and detection progress, so the browser never sees a connection refused.
 const board: import('../src/orchestrator/model.ts').BoardState = { world: worldName, runId: newRunId(), simNow: 0, patients: [], log: [], trace: [], phase: 'Joining the simulator world', busy: true }
-if (!flag('no-ui')) startUi(board)
+if (!flag('no-ui')) startUi(board, 4600, () => { try { return sim } catch { return undefined } })
 
 // Every simulator request lands in the board's trace, the compliance record,
 // annotated with the plain-language headline and outcome the UI shows.

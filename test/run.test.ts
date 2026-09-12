@@ -138,3 +138,25 @@ test('approving one patient runs that plan without waiting for the other patient
   assert.equal(ctx.board.patients[1].items[0].state, 'proposed', 'Eleanor\'s unapproved plan was not touched')
   assert.deepEqual(f.writes.map((w) => w.body.type), ['schedule_visit'])
 })
+
+test('undoHold reinstates a clinician-cleared hold, and only that', async () => {
+  const { clearHold, undoHold } = await import('../src/orchestrator/run.ts')
+  const f = fakeSim()
+  const ctx = ctxFor(f.sim, [
+    { ...item('clinical-hold', 'clinical_hold'), owner: 'clinician' },
+    item('visit', 'verified', { verification: { passed: true, observed: 'completed', atSimTime: FIT } }),
+  ])
+  const [hold, visit] = ctx.board.patients[0].items
+  assert.equal(undoHold(ctx.board, hold.id, 'Dr Test'), false, 'nothing to undo yet')
+  assert.equal(clearHold(ctx.board, hold.id, 'Dr Test'), true)
+  assert.equal(hold.state, 'verified')
+  assert.equal(undoHold(ctx.board, visit.id, 'Dr Test'), false, 'agent-verified work is not a confirmation')
+  assert.equal(visit.state, 'verified')
+  assert.equal(undoHold(ctx.board, hold.id, 'Dr Test'), true)
+  assert.equal(hold.state, 'clinical_hold')
+  assert.equal(hold.verification, undefined)
+  assert.ok(ctx.board.log.some((l) => /HOLD REINSTATED/.test(l)))
+  clearHold(ctx.board, hold.id, 'Dr Test')
+  ctx.board.patients[0].stage = 'discharged'
+  assert.equal(undoHold(ctx.board, hold.id, 'Dr Test'), false, 'a recorded discharge is not reversed from here')
+})

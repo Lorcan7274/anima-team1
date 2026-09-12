@@ -189,6 +189,24 @@ export function pendingWork(board: BoardState): { approved: number; proposed: nu
   }
 }
 
+/**
+ * Undo a clinician's confirmation: the hold goes back to clinical_hold. Only a
+ * hold a person cleared can be undone, and only while the patient is still on
+ * the ward; a recorded discharge is not reversed from here.
+ */
+export function undoHold(board: BoardState, itemId: string, who: string): boolean {
+  for (const p of board.patients) {
+    const item = p.items.find((i) => i.id === itemId)
+    if (!item) continue
+    if (item.owner !== 'clinician' || item.state !== 'verified' || p.stage === 'discharged') return false
+    item.state = 'clinical_hold'
+    delete item.verification
+    board.log.push(`HOLD REINSTATED ${itemId} by ${who} (confirmation undone)`)
+    return true
+  }
+  return false
+}
+
 /** True when every item for the patient is verified (holds cleared, no blockers). */
 export function readyForDischarge(row: PatientRow): boolean {
   return row.items.length > 0 && row.items.every((i) => i.state === 'verified')
