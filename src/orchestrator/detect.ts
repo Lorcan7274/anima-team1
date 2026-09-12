@@ -332,6 +332,7 @@ export async function loadProfile(sim: SimClient, patientId: string, birthDate: 
   const problems = (((ehr?.data as any)?.problems ?? []) as any[])
     .filter((x) => x?.status === 'active' && typeof x?.term === 'string')
     .map((x) => x.term as string)
+    .filter((term, i, all) => all.indexOf(term) === i) // the GP record repeats problems per encounter; list each once
   const context = res(gp)
     .filter((r) => r.kind === 'observation' && typeof (r.data as any)?.context === 'string')
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
