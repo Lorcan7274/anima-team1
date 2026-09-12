@@ -3,13 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Client for the NHS-SIM synthetic healthcare simulator API",
+  "description": "Homeward: discharge-readiness orchestrator on the NHS-SIM synthetic healthcare simulator",
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
+    "demo": "node scripts/demo-discharge.ts",
+    "demo:detect": "node scripts/demo-discharge.ts --detect-only",
+    "fallback": "node scripts/serve-fallback.ts",
     "quickstart": "node scripts/quickstart.ts",
     "test": "node --test \"test/**/*.test.ts\"",
+    "evals": "node --test test/invariants.test.ts test/story.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

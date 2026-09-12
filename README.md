@@ -1,77 +1,159 @@
-# anima-team1
+# Homeward — discharge-readiness orchestrator
 
-Client code for the [NHS-SIM](https://sim.animahacks.com/docs/) synthetic healthcare simulator.
-It is plain TypeScript with no runtime dependencies. Node 22.18 or newer runs it directly.
+Built at the OpenAI × Anima Healthtech Hackathon (12 Sep 2026, Team 1) on the
+[NHS-SIM](https://sim.animahacks.com/docs/) synthetic healthcare simulator.
+The full brief is in `discharge-orchestrator-brief.md`; this file is how to run it.
+
+Patients stay in hospital beds after they are medically fit because the services
+outside the hospital are not lined up. Homeward is a neighbourhood discharge desk:
+per patient it **detects** discharge barriers from the record with quoted evidence,
+**resolves** each one by acting in the owning service through the API, **verifies**
+after time moves by re-reading the specific resource it created, and **stops for a
+human** where it must — a clinical hold only a clinician can clear, an external
+decision (care-package funding) no API can make.
+
+The model boundary is explicit: the LLM (Anima ADK, OpenAI provider) reads free text
+and writes prose — barrier proposals with verbatim quotes, the seven discharge-summary
+sections, lab-request clinical details, escalation handovers. Deterministic code
+acts, advances the clock, verifies and drives the state machine.
 
 ## Setup
 
-```bash
-cp .env.example .env   # then paste your team key into SIM_KEY
-export $(grep -v '^#' .env | xargs)
-```
-
-`SIM_ORIGIN` defaults to `https://sim.animahacks.com`. Point it at `http://localhost:8080` for a local instance.
-
-## Run the quickstart
-
-Reads patient `SIM-000001`, creates a GP task, and reads it back from the GP site view:
+Node 22.18 or newer; the backend runs `.ts` files directly (no build step).
 
 ```bash
-node scripts/quickstart.ts
-node scripts/quickstart.ts --create-team "Example builders"   # also creates or joins a team
-node scripts/quickstart.ts --patient SIM-000002 --title "Review bloods" --idempotency-key bloods-1
+npm install                # typescript for typecheck + @animahealth/adk, openai, zod
+cp .env.example .env       # SIM_KEY (team key), OPENAI_API_KEY (optional), OPENAI_MODEL (optional)
 ```
 
-## Use the client
+Without `OPENAI_API_KEY` every model call falls back to a canned draft and the UI
+labels it as such — nothing silently pretends to be the model.
+
+**World discipline.** `POST /api/keys {teamName}` creates *or joins* a world, so team
+names are join codes. The demo runner mints an unguessable `discharge-<hex>` world by
+default. Never develop against the team world in `.env`; never commit `.env`.
+
+## Run the demo
+
+```bash
+npm run demo                              # new random world, UI on http://localhost:4600
+npm run demo -- --world discharge-<hex>   # a specific world (re-runs are safe: settled items stay settled)
+npm run demo:detect                       # read-only: seven red items with evidence, no actions
+npm run demo -- --approve --clear-holds   # headless: auto-approve the plan and simulate the clinician
+npm run demo -- --ward                    # also track the two seeded inpatients (SIM-000007/8)
+```
+
+What happens (`scripts/demo-discharge.ts`):
+
+1. **Setup** admits Amira Khan (SIM-000001) to AMU bed 12 and Eleanor Chen (SIM-000006) to
+   AMU bed 1 by walking the attendance stage machine (assign → assess → refer → admit).
+2. **Detect** builds the checklist per patient: rule-based readers over the sim views plus
+   a model pass over the record's free text; every quote is located in the record
+   before it is shown.
+3. **Approve** — the runner waits for *Approve plan* in the UI (staff approval of the
+   operational plan). Clinical holds and external decisions are never approvable.
+4. **Resolve → advance 121 sim-minutes → verify**, up to three rounds. Each verifier
+   re-reads only the resource its resolver created (the seeded world contains an old
+   `sent` summary, old visits and tasks that would fool a lazy check).
+5. **Clinical hold** — the runner waits for *Confirm reviewed* in the UI; that is the
+   only way a hold clears, and it is recorded in the audit trail.
+6. **Discharge** whoever is fully green; Eleanor stays blocked on the funding decision
+   with a prepared escalation handover (the "knows when to stop" beat).
+
+Every simulator request lands in the UI's trace (method, payload, idempotency key,
+response) — that is the compliance record shown to judges. Board snapshots are written
+to `fallback-board.json` after each phase.
+
+### The UI (`src/ui/server.ts`)
+
+One page served by `node:http` on `localhost:4600`, polling `/state`:
+
+- **Left — the work.** KPI tiles (click for detail), a card per patient with the
+  barrier dependency graph, click any task for its story: record evidence, plan and
+  approval, every call the agent made to the owning service, drafting provenance
+  (model vs fallback), independent verification, escalation.
+- **Right — the story.** *Same ward, twice*: the live agent world beside an
+  **illustrative** manual-working model (`src/story/baseline.ts`, parameters stated on
+  the panel), patient avatars moving bed → home with a progress ring, counters for beds
+  freed, bed-hours saved vs the model and patients home, a scrubber and *Replay*.
+  `http://localhost:4600/?attract=1` loops the replay for passers-by.
+- **Rail.** Open items per service and the live wire trace.
+
+### Offline fallback
+
+```bash
+npm run fallback                              # serve fallback-board.json with no simulator
+node scripts/serve-fallback.ts path/to.json   # any saved snapshot
+```
+
+Approve / clear-hold / escalate still work on the local copy, so the whole flow can be
+walked through if the shared simulator is down.
+
+## Checks
+
+```bash
+npm test            # unit + invariant tests, mocked fetch / fake sim — no network or key needed
+npm run evals       # the same suite; engine invariants live in test/invariants.test.ts
+npm run typecheck
+```
+
+The invariants are the promises the demo makes: verifiers trust only resolver-created
+resources, re-runs never re-resolve settled items, the loop never acts before approval,
+a draft-only summary is never sent, holds and external decisions have no resolver, and
+nobody is discharged with a hold or blocker open.
+
+## Layout
+
+```
+discharge-orchestrator-brief.md   the brief: mission, verified API mechanics, checklist, milestones
+scripts/demo-discharge.ts         the demo runner (flags above)
+scripts/serve-fallback.ts         offline UI from a snapshot
+scripts/quickstart.ts             handbook quickstart against a team world
+scripts/capture.ts                record read-only responses into fixtures/
+src/orchestrator/model.ts         ChecklistItem / PatientRow / BoardState — the meeting point of all workstreams
+src/orchestrator/detect.ts        rule-based readers + model free-text pass → items with quoted evidence
+src/orchestrator/llm.ts           the model boundary (ADK + OpenAI, Zod-typed, honest fallbacks)
+src/orchestrator/resolve.ts       one resolver per item type; acts in the owning service
+src/orchestrator/verify.ts        re-reads resolver-created resources only
+src/orchestrator/run.ts           detect → resolve → advance → verify loop, approval, holds, escalation
+src/orchestrator/world.ts         world join, admission stage machine, discharge
+src/story/baseline.ts             the illustrative manual-ward model (stated parameters, seeded RNG)
+src/story/story.ts                two-lane timelines + counters derived from the board
+src/ui/server.ts                  the page + tiny HTTP API
+src/sim/                          the simulator client (below)
+test/                             unit, UI, story and invariant tests
+```
+
+## The simulator client (`src/sim/`)
+
+Plain TypeScript, no runtime dependencies, one method per endpoint:
 
 ```ts
 import { SimClient } from './src/sim/index.ts'
 
 const sim = SimClient.fromEnv()
-
 const patients = await sim.searchPatients('gp', 'SIM-000001')
 const task = await sim.createTask('gp', 'SIM-000001', 'Check discharge follow-up', 'first-gp-task')
-const view = await sim.siteView('gp')
-const clock = await sim.clock()
-const eps = await sim.adapter('eps-tracker', { patientId: 'SIM-000001' })
-const fhirPatient = await sim.fhir.readPatient('SIM-000001')
+const view = await sim.siteView('hospital', { patient: 'SIM-000001' })
+await sim.advanceClock(121)                       // keeps the world paused
 ```
-
-Every method maps to one endpoint in the API explorer:
 
 | Area | Methods |
 | --- | --- |
 | Discovery | `health()`, `catalogue()`, `openapi()` |
-| Team | `createTeam(name)`, `team()`, `createBrowserSession()` |
-| Service workspaces | `siteView(site)`, `searchPatients(site, q)`, `siteAction(site, action, key)`, `createTask(...)`, `siteAppointments(site)` |
+| Team | `createTeam(name)`, `team()`, `withKey(key)`, `createBrowserSession()` |
+| Service workspaces | `siteView(site, query)`, `searchPatients(site, q)`, `siteAction(site, action, key)`, `createTask(...)`, `orderBloodTest(...)`, `connectDevice(...)`, `createReferral(...)`, `siteAppointments(site, {date})`, `wearables(patient)` |
 | GP, hospital, pharmacy, messaging | `gpDocuments()`, `hospitalAttendances()`, `hospitalDocuments()`, `pharmacyWorkspace()`, `gpMessagingWorkspace()`, `patientMessagingWorkspace()` |
-| Simulation time | `clock()`, `changeClock(change)` |
+| Simulation time | `clock()`, `changeClock(change)`, `advanceClock(minutes)` |
 | NHS-shaped adapters | `adapter(name)`, `adapterAction(name, action, key)` |
 | FHIR read-only | `fhir.searchPatients()`, `fhir.readPatient(id)`, `fhir.searchOrganizations()`, `fhir.readOrganization(id)` |
 | Operator (separate token) | `OperatorClient` with `worlds()`, `teams()`, `snapshot()`, `setIncident()`, and more |
 
-Sites are `gp`, `hospital`, `pharmacy`, and `patient`. Failed calls throw `SimApiError` with the HTTP status and parsed body.
+Mutating calls take an idempotency key; a retry with the same key and payload returns
+the original result. Updates to existing records need `resourceId` + `expectedVersion`.
+Failed calls throw `SimApiError` with the HTTP status and parsed body. Requests time
+out after `SIM_TIMEOUT_MS` (default 45 s) and every request is reported to an optional
+`trace` callback — the UI's wire trace.
 
-Mutating calls accept an idempotency key. Repeating a request with the same key and payload returns the original result, which makes retries safe.
-
-## Tests
-
-```bash
-npm test          # mocked fetch, no network or key needed
-npm run typecheck # needs `npm install` first for typescript
-```
-
-## Still to verify against the live API
-
-The response types in `src/sim/types.ts` are loose on purpose. Only the quickstart shapes are confirmed. Download `/api/openapi.json` with a working key and tighten the types for the action bodies, the clock change body, and the workspace responses.
-
-## Capture live responses
-
-With `SIM_KEY` set, this records read-only responses and the OpenAPI document into `fixtures/`:
-
-```bash
-node scripts/capture.ts
-git add fixtures && git commit -m "Capture simulator fixtures" && git push
-```
-
-Keys and tokens are redacted before writing. The fixtures are the basis for tightening the types.
+`node scripts/quickstart.ts --create-team "Name"` reproduces the handbook quickstart;
+`node scripts/capture.ts` records read-only responses (keys redacted) into `fixtures/`.
