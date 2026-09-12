@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Tests must never reach the model or the simulator. An empty key
+      # forces the canned fallback path; the fake simulator covers the rest.
+      OPENAI_API_KEY: ''
+      SIM_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Secrets never land in the example env
+        run: |
+          ! grep -E 'sim_[0-9a-f]{20,}|sk-[A-Za-z0-9_-]{20,}' .env.example

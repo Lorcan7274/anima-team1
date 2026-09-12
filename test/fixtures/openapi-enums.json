@@ -1,0 +1,100 @@
+{
+  "source": "https://sim.animahealth.com/api/openapi.json (captured 2026-09-12)",
+  "sites": [
+    "control",
+    "gp",
+    "hospital",
+    "community",
+    "pharmacy",
+    "diagnostics",
+    "referrals",
+    "wearables",
+    "patient"
+  ],
+  "actionTypes": [
+    "hospital_note",
+    "save_discharge_summary",
+    "process_document",
+    "messaging_action",
+    "place_pharmacy_order",
+    "update_pharmacy_basket",
+    "remove_pharmacy_basket_line",
+    "checkout_pharmacy_basket",
+    "cancel_pharmacy_order",
+    "receive_pharmacy_order",
+    "receive_pharmacy_referral",
+    "update_pharmacy_referral",
+    "receive_stock",
+    "update_stock_price",
+    "link_prescription_stock",
+    "register_attendance",
+    "update_attendance",
+    "connect_device",
+    "create_task",
+    "create_referral",
+    "order_test",
+    "draft_prescription",
+    "book_appointment",
+    "create_appointment_session",
+    "set_appointment_slot",
+    "arrive_appointment",
+    "cancel_appointment",
+    "save_consultation",
+    "save_problem",
+    "save_allergy",
+    "send_message",
+    "schedule_visit",
+    "dispatch_robot",
+    "review",
+    "accept",
+    "complete",
+    "reject",
+    "dispense",
+    "collect",
+    "share_record",
+    "report_absence",
+    "restore_staff",
+    "allocate_shift"
+  ],
+  "hospitalCommand": [
+    "assign",
+    "assess",
+    "refer",
+    "admit",
+    "discharge"
+  ],
+  "documentCommand": [
+    "send",
+    "assign",
+    "review",
+    "file",
+    "annotate"
+  ],
+  "pharmacyCommand": [
+    "accept",
+    "consult",
+    "complete"
+  ],
+  "panelId": [
+    "fbc",
+    "ue",
+    "hba1c",
+    "lft",
+    "crp",
+    "lipids"
+  ],
+  "priority": [
+    "routine",
+    "urgent"
+  ],
+  "collection": [
+    "now",
+    "next-round"
+  ],
+  "limits": {
+    "clinicalDetails": 2000,
+    "dischargeSection": 10000,
+    "title": 500,
+    "location": 100
+  }
+}

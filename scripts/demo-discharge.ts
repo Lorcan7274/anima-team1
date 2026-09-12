@@ -1,0 +1,223 @@
+/**
+ * Demo runner for Homeward, the discharge coordination agent.
+ *
+ *   node scripts/demo-discharge.ts                     # new random world, full run
+ *   node scripts/demo-discharge.ts --world <name>      # specific world (join code!)
+ *   node scripts/demo-discharge.ts --detect-only       # read-only checklist
+ *   node scripts/demo-discharge.ts --no-ui             # skip the ward-list server
+ *   node scripts/demo-discharge.ts --approve           # auto-approve the plan (headless)
+ *   node scripts/demo-discharge.ts --ward              # also track the two seeded inpatients (SIM-000007/8)
+ *
+ * With the UI up and no --approve, the runner WAITS for the "Approve plan"
+ * click — that is the staff-approval demo beat. Board snapshots are written to
+ * fallback-board.json after each phase (serve offline via scripts/serve-fallback.ts).
+ * Stage demo: run with a brand-new unguessable world minutes before demoing.
+ */
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { connectWorld, joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '../src/orchestrator/world.ts'
+import { approveAll, buildBoard, clearHold, detectAll, pendingWork, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
+import { refreshStage } from '../src/orchestrator/detect.ts'
+import type { OrchestratorContext } from '../src/orchestrator/model.ts'
+import { startUi } from '../src/ui/server.ts'
+import { annotate } from '../src/orchestrator/trace.ts'
+
+const arg = (name: string) => {
+  const i = process.argv.indexOf(`--${name}`)
+  return i >= 0 ? process.argv[i + 1] : undefined
+}
+const flag = (name: string) => process.argv.includes(`--${name}`)
+
+const AMIRA = 'SIM-000001'
+const ELEANOR = 'SIM-000006'
+/** Seeded already-inpatient attendances (AMU beds 2 and 3): extra live-detected rows at zero setup cost. */
+const WARD_EXTRAS = ['SIM-000007', 'SIM-000008']
+
+const worldName = arg('world') ?? randomWorldName()
+console.log(`world: ${worldName}`)
+
+// Serve the UI immediately with an empty board — it fills in live as setup
+// and detection progress, so the browser never sees a connection refused.
+const board: import('../src/orchestrator/model.ts').BoardState = { world: worldName, simNow: 0, patients: [], log: [], trace: [], phase: 'Joining the simulator world', busy: true }
+if (!flag('no-ui')) startUi(board)
+
+// Every simulator request lands in the board's trace — the compliance record —
+// annotated with the plain-language headline and outcome the UI shows.
+const traceHook = (entry: import('../src/sim/http.ts').TraceEntry) => {
+  board.trace!.push(annotate(entry))
+  if (board.trace!.length > 1000) board.trace!.shift()
+}
+// /api/keys is the sim's most fragile endpoint. Avoid it whenever a key is
+// already known: the --key flag, or the key saved in this world's snapshot.
+let savedKey: string | undefined
+if (existsSync('fallback-board.json')) {
+  try {
+    const snap = JSON.parse(readFileSync('fallback-board.json', 'utf8'))
+    if (snap.world === worldName && snap.apiKey) savedKey = snap.apiKey
+  } catch { /* unreadable snapshot */ }
+}
+const directKey = arg('key') ?? savedKey
+const { sim, world } = directKey
+  ? connectWorld(worldName, directKey, traceHook)
+  : await joinWorld(worldName, traceHook)
+if (directKey) console.log('connected with known key — /api/keys skipped')
+;(board as { apiKey?: string }).apiKey = (sim as { apiKey?: string }).apiKey
+const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }
+// Surface fatal errors on the page instead of leaving a dead tab.
+const fatal = (err: unknown) => {
+  board.phase = `Run failed: ${String((err as Error)?.message ?? err).slice(0, 160)} — Ctrl-C and re-run with --world ${board.world}`
+  board.busy = false
+  console.error(err)
+}
+process.on('uncaughtException', fatal)
+process.on('unhandledRejection', fatal)
+board.log.push('setting up the demo world…')
+
+// --- Setup: stage the narrative (day 3 of Amira's admission) ---------------
+/** The sim flaps under load: retry transient failures with backoff, visibly. */
+async function withRetry<T>(what: string, fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      if (i >= attempts) throw err
+      const wait = i * 5000
+      phase(`${what} — simulator not responding, retrying (attempt ${i + 1}/${attempts})`)
+      board.log.push(`retrying after: ${String((err as Error).message).slice(0, 120)}`)
+      await new Promise((r) => setTimeout(r, wait))
+    }
+  }
+}
+
+console.log('setup: admitting Amira to AMU bed 12 (assign -> assess -> refer -> admit)')
+phase('Admitting Amira to AMU bed 12 — walking the attendance stage machine')
+await withRetry('Admitting Amira', () => admitToWard(sim, AMIRA, 'AMU bed 12'))
+board.log.push('Amira admitted to AMU bed 12')
+// Eleanor is seeded on the take list in AMU bed 1; bring her fully in.
+phase('Admitting Eleanor to AMU bed 1')
+await withRetry('Admitting Eleanor', () => admitToWard(sim, ELEANOR, 'AMU bed 1'))
+board.log.push('Eleanor admitted to AMU bed 1')
+// --ward: the seeded inpatients cost only reads (already past 'inpatient'); their
+// items are detected live and resolved like everyone else's once approved.
+const cohort = flag('ward') ? [AMIRA, ELEANOR, ...WARD_EXTRAS] : [AMIRA, ELEANOR]
+if (flag('ward')) {
+  for (const id of WARD_EXTRAS) {
+    phase(`Confirming ${id} is on the ward`)
+    await withRetry(`Confirming ${id}`, () => admitToWard(sim, id, 'AMU'))
+  }
+}
+
+// --- Board + detection ------------------------------------------------------
+phase('Loading patient records from the simulator')
+const built = await withRetry('Loading records', () => buildBoard(sim, world, cohort))
+board.patients.push(...built.patients)
+board.simNow = built.simNow
+// t=0 for the story panel: the cohort is deemed fit now; a restored snapshot keeps its own.
+board.fitAt = built.simNow
+
+// Safe re-run: restore item state from the last snapshot when it is the SAME
+// world. Settled items stay settled, so nothing is re-resolved or duplicated.
+if (existsSync('fallback-board.json')) {
+  try {
+    const snap = JSON.parse(readFileSync('fallback-board.json', 'utf8'))
+    if (snap.world === world) {
+      let retried = 0
+      for (const sp of snap.patients ?? []) {
+        const row = board.patients.find((p) => p.patientId === sp.patientId)
+        if (row) { row.items = sp.items ?? []; row.insights = sp.insights; row.dischargedAt = sp.dischargedAt }
+        // A failed item (simulator outage, version clash) is retried on re-run:
+        // back to approved, fresh attempt number, so the keys are new too.
+        for (const item of row?.items ?? []) {
+          if (item.state === 'failed') { item.state = 'approved'; delete item.error; retried++ }
+        }
+      }
+      if (snap.fitAt) board.fitAt = snap.fitAt
+      if (retried) board.log.push(`(re-run: retrying ${retried} failed item(s))`)
+      board.log = [...(snap.log ?? []), '(state restored from snapshot — safe re-run)']
+      console.log('restored prior state for this world from fallback-board.json')
+    }
+  } catch { /* unreadable snapshot: start fresh */ }
+}
+const ctx: OrchestratorContext = {
+  sim,
+  world,
+  board,
+  log(message) {
+    board.log.push(message)
+    console.log(`  ${message}`)
+  },
+}
+phase('Reading the records — the model is detecting barriers')
+await detectAll(ctx)
+phase('Detection complete', false)
+
+console.log('\n=== checklist ===')
+for (const p of board.patients) {
+  console.log(`${p.name} (${p.patientId}) — ${p.stage} ${p.location ?? ''}`)
+  for (const i of p.items) console.log(`  [${i.state}] (${i.owner}) ${i.title}`)
+}
+
+const snapshot = () => {
+  try { writeFileSync('fallback-board.json', JSON.stringify(board, null, 1)) } catch {}
+}
+snapshot()
+
+if (flag('detect-only')) {
+  console.log('\n--detect-only: stopping after detection. UI stays up if started.')
+} else {
+  // --- Approve -> act -> verify -> discharge, per patient, as approvals arrive ---
+  // Approving one patient's plan starts the agent on that plan at once. Other
+  // patients can be approved (or a hold cleared) while it runs; each pass
+  // picks up whatever is newly approved and discharges whoever is fully green.
+  const headless = flag('approve') || flag('no-ui')
+  if (headless) approveAll(board, 'Auto-approval (headless run)')
+  const holds = () => board.patients.flatMap((p) => p.items).filter((i) => i.state === 'clinical_hold')
+  const dischargeReady = async () => {
+    for (const p of board.patients) {
+      if (p.stage === 'discharged' || !readyForDischarge(p)) continue
+      phase(`Discharging ${p.name} in the hospital EPR`)
+      await dischargeAttendance(sim, p.patientId, 'Home with community support and monitoring')
+      await refreshStage(sim, p) // the board must say what the hospital record now says
+      p.dischargedAt = board.simNow // story lane needs the moment the bed was freed
+      ctx.log(`DISCHARGED ${p.name}`)
+    }
+  }
+  let announced = ''
+  for (;;) {
+    const work = pendingWork(board)
+    if (work.approved) {
+      await runUntilSettled(ctx)
+      snapshot()
+    }
+    if (flag('clear-holds')) {
+      for (const h of holds()) { clearHold(board, h.id, 'Simulated clinician (--clear-holds)'); ctx.log(`hold ${h.id} cleared by simulated clinician`) }
+    }
+    await dischargeReady()
+    snapshot()
+    if (headless) {
+      if (holds().length) ctx.log(`${holds().length} clinical hold(s) remain — headless run without --clear-holds, not discharging`)
+      break
+    }
+    const left = pendingWork(board)
+    if (!left.approved && !left.proposed && !left.holds) break // nothing a person can still do here
+    const waitingFor = [
+      ...board.patients.filter((p) => p.items.some((i) => i.state === 'proposed')).map((p) => `approval for ${p.name}`),
+      ...(left.holds ? ['clinician sign-off on the clinical hold'] : []),
+    ].join(' and ')
+    if (waitingFor !== announced) {
+      console.log(`\nwaiting in the UI for ${waitingFor} (or re-run with --approve / --clear-holds)...`)
+      announced = waitingFor
+    }
+    phase(`Waiting for ${waitingFor}`, false)
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+
+  for (const p of board.patients) {
+    if (p.stage === 'discharged') continue
+    const open = p.items.filter((i) => i.state !== 'verified')
+    ctx.log(`${p.name} NOT discharged — ${open.length} unresolved: ${open.map((i) => `${i.id}[${i.state}]`).join(', ')}`)
+  }
+  phase('Run complete', false)
+  snapshot()
+  console.log('\nProof in the sim’s own apps: hospital discharged list, GP inbox, community board, home dashboard.')
+  console.log('Note: clinical holds require clicking "Confirm reviewed" in the UI, then re-run against the SAME world.')
+}
