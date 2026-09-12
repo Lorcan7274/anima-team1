@@ -13,7 +13,7 @@
     "fallback": "node scripts/serve-fallback.ts",
     "quickstart": "node scripts/quickstart.ts",
     "test": "node --test \"test/**/*.test.ts\"",
-    "evals": "node --test test/invariants.test.ts test/story.test.ts",
+    "evals": "node --test test/invariants.test.ts test/baseline.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

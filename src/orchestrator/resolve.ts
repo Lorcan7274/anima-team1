@@ -104,8 +104,14 @@ const resolveSummary: Resolver = async (ctx, item) => {
 /** share_record every hospital document the item cites to community. Returns the ids shared. */
 async function shareDocumentsWithCommunity(ctx: OrchestratorContext, item: ChecklistItem): Promise<string[]> {
   const shared: string[] = []
-  const view = await ctx.sim.siteView('hospital', { patient: item.patientId, limit: 100 })
-  const docs = ((view.resources ?? []) as any[]).filter((r) => r.kind === 'document' && !(r.visibleTo ?? []).includes('community'))
+  let docs: any[] = []
+  try {
+    const view = await ctx.sim.siteView('hospital', { patient: item.patientId, limit: 100 })
+    docs = ((view.resources ?? []) as any[]).filter((r) => r.kind === 'document' && !(r.visibleTo ?? []).includes('community'))
+  } catch (err) {
+    ctx.log(`share_record skipped, could not read hospital view (non-fatal): ${String((err as Error).message).slice(0, 120)}`)
+    return shared
+  }
   for (const doc of docs) {
     try {
       await ctx.sim.siteAction(

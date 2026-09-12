@@ -5,10 +5,6 @@
  * graph, an Accounts-style Services rail,
  * and the activity log.
  *
- * The rail opens with the story panel: the same ward twice — an illustrative
- * manual-working model (src/story/baseline.ts) beside the live agent world —
- * with bed-hours-saved counters and a replay scrubber.
- *
  * Polls /state every 2s. Buttons: "Approve plan" (header, staff approval of
  * all proposed items), "Confirm reviewed" (clinical hold sign-off),
  * "Prepare escalation" (blocked_human handover). Each KPI tile opens a modal
@@ -22,7 +18,6 @@
 import { createServer } from 'node:http'
 import type { BoardState, ChecklistItem, PatientRow } from '../orchestrator/model.ts'
 import { approveAll, clearHold, prepareEscalation } from '../orchestrator/run.ts'
-import { computeStory } from '../story/story.ts'
 
 /** What each verified item does NOT prove — epistemic honesty, per item kind. */
 const CAVEATS: Record<string, string> = {
@@ -147,7 +142,7 @@ export const PAGE = `<!doctype html>
   .sidebar .foot{margin-top:auto;padding:10px;font-size:12px;color:var(--ink-3);border-top:1px solid var(--grid)}
   .sidebar .foot b{color:var(--ink-2);font-weight:480}
 
-  .main{padding:28px 36px;max-width:1220px}
+  .main{padding:28px 36px;max-width:1140px}
   .header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
   h1{font-size:22px;font-weight:480;letter-spacing:0.01em}
   .subtitle{color:var(--ink-3);font-size:13px;margin-top:2px}
@@ -214,7 +209,7 @@ export const PAGE = `<!doctype html>
   .modal .empty{color:var(--ink-3);font-size:13px;padding:18px 0}
   .kpi svg{position:absolute;left:0;right:0;bottom:0;width:100%;height:28px;display:block}
 
-  .content{display:grid;grid-template-columns:1fr 340px;gap:14px;align-items:start}
+  .content{display:grid;grid-template-columns:1fr 300px;gap:14px;align-items:start}
   .card{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
         padding:18px 20px;margin-bottom:14px;box-shadow:0 1px 2px rgba(11,11,11,0.03)}
   .rail .card{padding:16px 18px}
@@ -292,49 +287,6 @@ export const PAGE = `<!doctype html>
   .graph-insights{border-top:1px solid var(--grid);margin-top:6px;padding-top:10px;font-size:11px;color:var(--ink-2)}
   .graph-insights b{font-weight:480;color:var(--ink)}
 
-  .story h2{display:flex;align-items:baseline;gap:8px}
-  .story h2 .t{margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:420;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .story h2 .t.proj{color:var(--accent)}
-  .counters{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 12px}
-  .counter{background:#f6f6f4;border-radius:8px;padding:8px 10px;min-width:0}
-  .counter .v{font-size:20px;font-weight:530;letter-spacing:-0.01em;line-height:1.1;font-variant-numeric:tabular-nums}
-  .counter .v small{font-size:11px;font-weight:420;color:var(--ink-3)}
-  .counter .l{font-size:10px;color:var(--ink-3);margin-top:2px;line-height:1.25}
-  .lane{padding:10px 0 2px;border-top:1px solid var(--grid)}
-  .lane-head{display:flex;align-items:baseline;gap:8px;font-size:12px;font-weight:480}
-  .lane-head .note{font-size:10px;color:var(--ink-3);font-weight:420}
-  .lane-head .n{margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:420;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .track{position:relative;height:66px;margin:6px 30px 0}
-  .track:before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px dashed var(--grid)}
-  .track .end{position:absolute;top:50%;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:6px;
-              background:#f4f4f1;color:var(--ink-3);display:grid;place-items:center}
-  .track .end svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-  .track .end.bed{left:-26px}
-  .track .end.home{left:calc(100% + 26px)}
-  .track .end.home.lit{background:rgba(12,163,12,0.12);color:#0a7a0a}
-  .av{position:absolute;top:50%;width:30px;height:30px;transform:translate(-50%,-50%);cursor:default;
-      transition:left .6s cubic-bezier(.2,.7,.2,1),margin-top .6s}
-  .av svg{position:absolute;inset:0;width:30px;height:30px;transform:rotate(-90deg)}
-  .av svg circle{fill:none;stroke-width:2.5}
-  .av .ring-bg{stroke:var(--grid)}
-  .av .ring{stroke:var(--warning);transition:stroke-dashoffset .6s}
-  .av.idle .ring{stroke:#a5a39c}
-  .av.home .ring{stroke:var(--good)}
-  .av.blocked .ring{stroke:var(--critical)}
-  .av .ini{position:absolute;inset:5px;border-radius:50%;background:var(--surface);display:grid;place-items:center;
-           font-size:9px;font-weight:530;color:var(--accent);letter-spacing:.02em}
-  .av.home .ini{color:#0a7a0a}
-  .av.blocked .ini{color:var(--critical)}
-  .av.flash .ini{animation:pulse .8s ease-out}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(12,163,12,.5)}100%{box-shadow:0 0 0 14px rgba(12,163,12,0)}}
-  .story-foot{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:10px;border-top:1px solid var(--grid)}
-  .story-foot input[type=range]{flex:1;min-width:0;accent-color:var(--accent)}
-  .story-foot .tl{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:52px;text-align:right}
-  .story-foot button.ghost{padding:5px 12px;font-size:11px}
-  .story .disclaimer{font-size:10.5px;color:var(--ink-3);margin-top:8px;line-height:1.45}
-  .story .disclaimer b{font-weight:480;color:var(--ink-2)}
-  .story .disclaimer a{color:var(--accent);cursor:pointer}
-
   @media(max-width:900px){
     .app{grid-template-columns:1fr}.sidebar{display:none}.main{padding:22px 18px}.content{grid-template-columns:1fr}.rail{display:none}
     .kpis{grid-template-columns:repeat(2,1fr)}.dependency-graph{height:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:104px}
@@ -391,18 +343,6 @@ export const PAGE = `<!doctype html>
     <div class="content">
       <div id="board"></div>
       <div class="rail">
-        <div class="card story" id="story" style="display:none">
-          <h2>Same ward, twice <span class="t" id="storyClock">—</span></h2>
-          <div class="counters" id="counters"></div>
-          <div class="lane"><div class="lane-head">Today&rsquo;s ward <span class="note">illustrative model</span><span class="n" id="laneBaselineN"></span></div>
-            <div class="track" id="laneBaseline"><span class="end bed" title="in a hospital bed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18V8M3 14h18v4M21 14v-3a2 2 0 0 0-2-2h-8v5M3 18h18"/><circle cx="7" cy="10.5" r="1.6"/></svg></span><span class="end home" title="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5 10v10h5v-5h4v5h5V10"/></svg></span></div></div>
-          <div class="lane"><div class="lane-head">With Homeward <span class="note" id="laneAgentNote">live simulator world</span><span class="n" id="laneAgentN"></span></div>
-            <div class="track" id="laneAgent"><span class="end bed" title="in a hospital bed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18V8M3 14h18v4M21 14v-3a2 2 0 0 0-2-2h-8v5M3 18h18"/><circle cx="7" cy="10.5" r="1.6"/></svg></span><span class="end home" title="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5 10v10h5v-5h4v5h5V10"/></svg></span></div></div>
-          <div class="story-foot"><button class="ghost" id="replayBtn" onclick="replayStory(false)" title="Replay from fit to the model horizon · double-click to follow the live clock again">Replay</button>
-            <input type="range" id="scrub" min="0" max="100" step="1" value="100" oninput="scrubStory(this.value)" aria-label="story time">
-            <span class="tl" id="scrubLabel">now</span></div>
-          <div class="disclaimer" id="storyNote"></div>
-        </div>
         <div class="card"><h2>Services</h2><div id="services"></div></div>
         <div class="card log-card" id="audit"><h2>Trace <span style="font-size:11px;color:var(--ink-3);font-weight:420">· live, newest first</span></h2><div id="wiretrace"></div></div>
       </div>
@@ -704,7 +644,6 @@ function render(s) {
       '<div class="what">' + esc(s.phase || 'Setting up the demo world…') + '</div>' +
       '<div class="why">Live calls against the NHS-SIM simulator — the ward list appears as records load.</div></div></div>'
     document.getElementById('services').innerHTML = ''
-    renderStory(s)
     renderRailTrace(s)
     return
   }
@@ -755,133 +694,8 @@ function render(s) {
       '<span class="n' + (n ? '' : ' clear') + '">' + (n ? n + ' open' : 'clear') + '</span></div>'
   }).join('')
 
-  renderStory(s)
   renderRailTrace(s)
 }
-// --- The story: the same ward twice ------------------------------------------
-// Lanes are timelines from /state.story. storyT is the sim time the lanes are
-// drawn at (null = follow the live clock). The agent lane is only known up to
-// now; past that it holds and the label says "projected".
-let storyT = null
-let storyAnim = null
-const prevDone = {}
-const RING = 2 * Math.PI * 12.5
-const rel = (ms, fitAt) => {
-  const m = Math.max(0, Math.round((ms - fitAt) / 60000))
-  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60)
-  return '+' + (d ? d + 'd ' : '') + h + 'h ' + String(m % 60).padStart(2, '0') + 'm'
-}
-// Mirrors countersAt() in src/story/story.ts.
-const storyCounters = (patients, t, now) => {
-  const tAgent = Math.min(t, now)
-  let bedsFreed = 0, homeModel = 0, saved = 0
-  for (const p of patients) {
-    const a = p.agent.homeAt, b = p.baseline.homeAt
-    if (a !== null && a <= tAgent) { bedsFreed++; if (b !== null) saved += Math.max(0, b - a) }
-    if (b !== null && b <= t) homeModel++
-  }
-  return { bedsFreed, homeModel, bedHoursSaved: Math.round(saved / 3600000 * 10) / 10 }
-}
-const laneAt = (lane, t) => {
-  const done = lane.items.filter((i) => i.doneAt !== null && i.doneAt <= t).length
-  const home = lane.homeAt !== null && lane.homeAt <= t
-  return { done, total: lane.items.length, home, frac: lane.items.length ? done / lane.items.length : 0 }
-}
-function renderLane(trackId, key, patients, laneOf, t, fitAt, live) {
-  const track = document.getElementById(trackId)
-  const rows = patients.map((p) => ({ p, lane: laneOf(p), at: laneAt(laneOf(p), t) }))
-  // Spread avatars that share a position so none hides another.
-  const groups = {}
-  rows.forEach((r) => { const g = r.at.home ? 'home' : String(Math.round(r.at.frac * 6)); (groups[g] = groups[g] || []).push(r) })
-  const seen = new Set()
-  let homeCount = 0
-  for (const g of Object.values(groups)) {
-    g.forEach((r, idx) => {
-      const id = key + ':' + r.p.patientId
-      seen.add(id)
-      let el = track.querySelector('[data-key="' + id + '"]')
-      if (!el) {
-        el = document.createElement('div')
-        el.className = 'av'
-        el.dataset.key = id
-        el.innerHTML = '<svg viewBox="0 0 30 30" aria-hidden="true"><circle class="ring-bg" cx="15" cy="15" r="12.5"/>' +
-          '<circle class="ring" cx="15" cy="15" r="12.5" stroke-dasharray="' + RING.toFixed(2) + '" stroke-dashoffset="' + RING.toFixed(2) + '"/></svg>' +
-          '<span class="ini">' + esc(r.p.name).split(' ').map((w) => w[0]).slice(0, 2).join('') + '</span>'
-        track.appendChild(el)
-      }
-      const blocked = !!r.lane.blockedBy && !r.at.home
-      const flash = prevDone[id] !== undefined && r.at.done > prevDone[id]
-      prevDone[id] = r.at.done
-      if (r.at.home) homeCount++
-      el.className = 'av' + (r.at.home ? ' home' : blocked ? ' blocked' : r.at.done ? '' : ' idle') + (flash ? ' flash' : '')
-      el.style.left = (r.at.home ? 100 : 5 + r.at.frac * 83).toFixed(1) + '%'
-      el.style.marginTop = ((idx - (g.length - 1) / 2) * 18).toFixed(0) + 'px'
-      el.querySelector('.ring').setAttribute('stroke-dashoffset', (RING * (1 - r.at.frac)).toFixed(2))
-      el.title = r.p.name + ' · ' + r.at.done + ' of ' + r.at.total + ' done' +
-        (r.at.home ? ' · home ' + rel(r.lane.homeAt, fitAt) : blocked ? ' · waiting on a human decision' : (live && t > 0 ? '' : '')) +
-        (r.lane.missedPolls ? ' · ' + r.lane.missedPolls + ' missed inbox check' + (r.lane.missedPolls > 1 ? 's' : '') : '')
-    })
-  }
-  track.querySelectorAll('.av').forEach((el) => { if (!seen.has(el.dataset.key)) el.remove() })
-  track.querySelector('.end.home').classList.toggle('lit', homeCount > 0)
-  return homeCount
-}
-function renderStory(s) {
-  const st = s.story
-  const card = document.getElementById('story')
-  if (!st || !st.patients.length) { card.style.display = 'none'; return }
-  card.style.display = ''
-  const t = storyT === null ? st.now : Math.min(Math.max(storyT, st.fitAt), st.horizon)
-  const clock = document.getElementById('storyClock')
-  clock.textContent = rel(t, st.fitAt) + (t > st.now ? ' · projected' : t < st.now ? ' · replay' : ' · now')
-  clock.className = 't' + (t > st.now ? ' proj' : '')
-  const c = storyCounters(st.patients, t, st.now)
-  document.getElementById('counters').innerHTML =
-    '<div class="counter" title="beds the agent world has freed"><div class="v">' + c.bedsFreed + '</div><div class="l">beds freed</div></div>' +
-    '<div class="counter" title="for each bed freed: when the manual model would free it, minus when the agent did"><div class="v">' + c.bedHoursSaved + '<small> h</small></div><div class="l">bed-hours saved<br>vs model</div></div>' +
-    '<div class="counter" title="patients home: agent world / manual model"><div class="v">' + c.bedsFreed + '<small> / ' + c.homeModel + '</small></div><div class="l">home<br>agent / model</div></div>'
-  const nB = renderLane('laneBaseline', 'b', st.patients, (p) => p.baseline, t, st.fitAt, false)
-  const nA = renderLane('laneAgent', 'a', st.patients, (p) => p.agent, Math.min(t, st.now), st.fitAt, true)
-  document.getElementById('laneBaselineN').textContent = nB + ' of ' + st.patients.length + ' home'
-  document.getElementById('laneAgentN').textContent = nA + ' of ' + st.patients.length + ' home'
-  document.getElementById('laneAgentNote').textContent = t > st.now ? 'live world · as of now' : 'live simulator world'
-  const scrub = document.getElementById('scrub')
-  scrub.min = st.fitAt; scrub.max = st.horizon; scrub.step = 60000
-  if (document.activeElement !== scrub) scrub.value = t
-  document.getElementById('scrubLabel').textContent = storyT === null ? 'now' : rel(t, st.fitAt)
-  const pm = st.params.pollMinutes
-  document.getElementById('storyNote').innerHTML =
-    '<b>Today&rsquo;s ward</b> is an illustrative model, not a measurement: the same checklist, each team checking its inbox on its own cadence ' +
-    '(pharmacy ' + pm.pharmacy + ' min, results ' + pm.diagnostics + ', letter ' + pm.hospital + ', community ' + pm.community + ', GP ' + pm.gp + '), ' +
-    'jobs started one after another, ' + Math.round(st.params.dropProbability * 100) + '% of checks missing the job, discharge at the next ward round. ' +
-    '<b>With Homeward</b> is what the agent actually did in the simulator, read back and verified. Patients are synthetic.'
-}
-function scrubStory(v) {
-  if (storyAnim) { cancelAnimationFrame(storyAnim); storyAnim = null }
-  storyT = Number(v)
-  if (lastState) renderStory(lastState)
-}
-function replayStory(loop) {
-  const st = lastState && lastState.story
-  if (!st) return
-  if (storyAnim) cancelAnimationFrame(storyAnim)
-  const from = st.fitAt, to = st.horizon, duration = 12000
-  const start = performance.now()
-  const step = (ts) => {
-    const k = Math.min(1, (ts - start) / duration)
-    storyT = from + (to - from) * k
-    if (lastState) renderStory(lastState)
-    if (k < 1) storyAnim = requestAnimationFrame(step)
-    else { storyAnim = null; if (loop) setTimeout(() => replayStory(true), 2500) }
-  }
-  storyAnim = requestAnimationFrame(step)
-}
-document.getElementById('replayBtn').addEventListener('dblclick', () => { storyT = null; if (storyAnim) cancelAnimationFrame(storyAnim); storyAnim = null; if (lastState) renderStory(lastState) })
-// ?attract=1 loops the replay for passers-by at the stall.
-if (new URLSearchParams(location.search).get('attract')) {
-  const waitForStory = setInterval(() => { if (lastState && lastState.story && lastState.story.patients.length) { clearInterval(waitForStory); replayStory(true) } }, 1000)
-}
-
 async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
 function itemStory(id) { openModal('item:' + id) }
 async function clearHold(id) { await fetch('/clear-hold?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
@@ -900,9 +714,7 @@ export function startUi(board: BoardState, port = 4600): void {
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.pathname === '/state') {
       res.setHeader('content-type', 'application/json')
-      let story: unknown = null
-      try { story = computeStory(board) } catch (err) { console.error(`story: ${String((err as Error).message)}`) }
-      res.end(JSON.stringify({ ...board, story }))
+      res.end(JSON.stringify(board))
     } else if (url.pathname === '/clear-hold' && req.method === 'POST') {
       const ok = clearHold(board, url.searchParams.get('item') ?? '', 'Demo clinician')
       res.statusCode = ok ? 200 : 404

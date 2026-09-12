@@ -1,8 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { BoardState, ChecklistItem, PatientRow } from '../src/orchestrator/model.ts'
+import type { ChecklistItem, PatientRow } from '../src/orchestrator/model.ts'
 import { DEFAULT_BASELINE, baselineFor, kindOf, seededRandom } from '../src/story/baseline.ts'
-import { computeStory, countersAt } from '../src/story/story.ts'
 
 const FIT = 1789200000000
 const MIN = 60_000
@@ -68,43 +67,4 @@ test('baseline never discharges a patient whose barrier needs an external human 
   assert.equal(t.homeAt, null)
   assert.equal(t.blockedBy, 'sim-000001-care-package')
   assert.equal(t.items.find((i) => i.kind === 'care-package')!.doneAt, null)
-  // ...and such a patient never counts towards bed-hours saved, even if the agent freed the bed.
-  row.dischargedAt = FIT + HOUR
-  const story = computeStory({ world: 'w', simNow: FIT + 2 * HOUR, fitAt: FIT, patients: [row], log: [] })
-  assert.equal(story.counters.bedsFreed, 1)
-  assert.equal(story.counters.bedHoursSaved, 0)
-})
-
-test('computeStory: agent lane from verification times, counters honest about what is known', () => {
-  const row = amira()
-  for (const i of row.items) {
-    i.state = 'verified'
-    i.verification = { passed: true, observed: 'ok', atSimTime: FIT + 121 * MIN }
-  }
-  row.dischargedAt = FIT + 4 * HOUR
-  const board: BoardState = { world: 'w', simNow: FIT + 4 * HOUR, fitAt: FIT, patients: [row], log: [] }
-  const story = computeStory(board)
-  assert.equal(story.fitAt, FIT)
-  assert.equal(story.patients[0].agent.homeAt, FIT + 4 * HOUR)
-  assert.equal(story.patients[0].agent.items.filter((i) => i.doneAt !== null).length, 7)
-  const modelHome = story.patients[0].baseline.homeAt!
-  // At now (+4h): one bed freed; headline = model discharge minus actual discharge.
-  assert.equal(story.counters.bedsFreed, 1)
-  assert.equal(story.counters.bedHoursSaved, Math.round(((modelHome - (FIT + 4 * HOUR)) / HOUR) * 10) / 10)
-  assert.equal(story.counters.patientsHomeBaseline, 0)
-  const atModelHome = countersAt(story.patients, modelHome, story.now)
-  assert.equal(atModelHome.patientsHomeBaseline, 1)
-  assert.equal(atModelHome.bedHoursSaved, story.counters.bedHoursSaved)
-  // Before the agent discharged nobody is home in either lane.
-  const early = countersAt(story.patients, FIT + HOUR, story.now)
-  assert.deepEqual([early.bedsFreed, early.patientsHomeBaseline, early.bedHoursSaved], [0, 0, 0])
-  assert.ok(story.horizon >= modelHome)
-})
-
-test('computeStory infers fitAt from the earliest action when the board predates the field', () => {
-  const row = amira()
-  row.items[1].state = 'awaiting_verification'
-  row.items[1].resolution = { action: 'x', resourceId: 'r', idempotencyKey: 'k', atSimTime: FIT + 5 * MIN }
-  const board: BoardState = { world: 'w', simNow: FIT + 2 * HOUR, patients: [row], log: [] }
-  assert.equal(computeStory(board).fitAt, FIT + 5 * MIN)
 })
