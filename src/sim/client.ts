@@ -81,11 +81,13 @@ export class SimClient {
    */
   /**
    * POST /api/keys. Creating a fresh world seeds eight attendances and their
-   * records, which the simulator can take well over a minute to do, so this
-   * call gets a longer timeout than the rest (SIM_KEYS_TIMEOUT_MS, default
-   * 180000). Re-posting the same team name returns the same key.
+   * records, which takes the simulator tens of seconds. The server keeps
+   * seeding after the client gives up, and re-posting the same team name
+   * returns the same key once it is ready, so the fast path is a SHORT
+   * per-attempt timeout (SIM_KEYS_TIMEOUT_MS, default 12000) and many quick
+   * retries, not one long wait.
    */
-  async createTeam(teamName: string, timeoutMs = Number(process.env.SIM_KEYS_TIMEOUT_MS || 180_000)): Promise<CreateTeamResponse> {
+  async createTeam(teamName: string, timeoutMs = Number(process.env.SIM_KEYS_TIMEOUT_MS || 12_000)): Promise<CreateTeamResponse> {
     return this.http.post<CreateTeamResponse>('/api/keys', { teamName }, { token: null, timeoutMs })
   }
 

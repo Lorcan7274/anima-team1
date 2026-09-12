@@ -58,10 +58,10 @@ if (existsSync('fallback-board.json')) {
 const directKey = arg('key') ?? savedKey
 const { sim, world } = directKey
   ? connectWorld(worldName, directKey, traceHook)
-  : await joinWorld(worldName, traceHook, 3, (attempt, err) => {
-      board.phase = `Joining the simulator world: no answer yet (attempt ${attempt} of 3; a fresh world can take a minute or two to seed)`
-      board.log.push(`retrying /api/keys after: ${String((err as Error).message).slice(0, 120)}`)
-      console.log(`  /api/keys did not answer (attempt ${attempt}); retrying`)
+  : await joinWorld(worldName, traceHook, 20, (attempt, err) => {
+      board.phase = `Joining the simulator world: reconnecting, attempt ${attempt + 1} of 20 (the world is still being seeded)`
+      if (attempt === 1) board.log.push(`/api/keys is slow; reconnecting every few seconds until the world is ready`)
+      console.log(`  /api/keys not ready (attempt ${attempt}); reconnecting: ${String((err as Error).message).slice(0, 80)}`)
     })
 if (directKey) console.log('connected with known key, /api/keys skipped')
 ;(board as { apiKey?: string }).apiKey = (sim as { apiKey?: string }).apiKey
@@ -78,13 +78,13 @@ board.log.push('setting up the demo world…')
 
 // --- Setup: stage the narrative (day 3 of Amira's admission) ---------------
 /** The sim flaps under load: retry transient failures with backoff, visibly. */
-async function withRetry<T>(what: string, fn: () => Promise<T>, attempts = 4): Promise<T> {
+async function withRetry<T>(what: string, fn: () => Promise<T>, attempts = 8): Promise<T> {
   for (let i = 1; ; i++) {
     try {
       return await fn()
     } catch (err) {
       if (i >= attempts) throw err
-      const wait = i * 5000
+      const wait = 2000
       phase(`${what}, simulator not responding, retrying (attempt ${i + 1}/${attempts})`)
       board.log.push(`retrying after: ${String((err as Error).message).slice(0, 120)}`)
       await new Promise((r) => setTimeout(r, wait))
