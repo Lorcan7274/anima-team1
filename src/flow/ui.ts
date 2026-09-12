@@ -39,14 +39,9 @@ export const FLOW_PAGE = `<!doctype html>
   .brand .sub{font-size:12px;color:var(--ink-3)}
   .clock{font-size:30px;font-weight:530;letter-spacing:-.01em;font-variant-numeric:tabular-nums;margin-left:auto}
   .clock small{font-size:12px;font-weight:420;color:var(--ink-3);display:block;letter-spacing:0}
-  .status{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);background:var(--surface);
-          border:1px solid var(--hairline);border-radius:999px;padding:6px 14px;max-width:520px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .spin{width:12px;height:12px;border:2px solid var(--accent-soft);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex:none}
-  @keyframes spin{to{transform:rotate(360deg)}}
   button.ghost{font:inherit;font-size:12px;font-weight:480;color:var(--ink-2);background:var(--surface);
                border:1px solid var(--hairline);border-radius:999px;padding:7px 16px;cursor:pointer;white-space:nowrap}
   button.ghost:hover{background:#f4f4f1}
-  .pressure{font-size:12px;color:#8a4b1c;background:rgba(236,131,90,.12);border-radius:999px;padding:6px 12px;white-space:nowrap}
 
 
   .lane{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 18px 12px;margin-bottom:14px}
@@ -93,14 +88,15 @@ export const FLOW_PAGE = `<!doctype html>
                 border-radius:999px;padding:4px 10px;cursor:pointer}
   .speed button:hover{background:#f4f4f1}
   .speed button.on{background:var(--accent);color:#fff}
+  .rate{font-size:13px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+  .rate b{font-weight:530;color:var(--ink)}
 </style></head><body>
 <div class="top">
-  <div class="brand"><div class="mark">H</div><div><h1>Homeward · the whole ward</h1><div class="sub">every arrival, moved along by real actions in the NHS-SIM simulator</div></div></div>
-  <span class="status" id="status"></span>
-  <span class="pressure" id="pressure" style="display:none"></span>
-  <span class="speed" id="speed" title="simulator minutes advanced per tick">Speed
-    <button data-step="15" onclick="setSpeed(15)">15m</button><button data-step="30" onclick="setSpeed(30)">30m</button>
-    <button data-step="60" onclick="setSpeed(60)">1h</button><button data-step="120" onclick="setSpeed(120)">2h</button></span>
+  <div class="brand"><div class="mark">H</div><div><h1>Homeward</h1></div></div>
+  <span class="speed" id="speed" title="how much simulated time passes each step">Step
+    <button data-step="15" onclick="setSpeed(15)">15 min</button><button data-step="30" onclick="setSpeed(30)">30 min</button>
+    <button data-step="60" onclick="setSpeed(60)">1 h</button><button data-step="120" onclick="setSpeed(120)">2 h</button></span>
+  <span class="rate" id="rate"></span>
   <button class="ghost" id="pauseBtn" onclick="togglePause()">Pause</button>
   <div class="clock" id="clock">—<small id="clockSub">sim time since start</small></div>
 </div>
@@ -238,11 +234,11 @@ function render(s) {
   last = s
   const W = s.params.wardSize
   document.getElementById('clock').innerHTML = (s.startedAt ? '+' + rel(s.simNow, s.startedAt) : '—') + '<small id="clockSub">sim time since start · tick ' + s.tick + ' · ' + s.params.stepMinutes + ' sim-min per tick</small>'
-  document.getElementById('status').innerHTML = (s.busy ? '<span class="spin"></span>' : '') + esc(s.phase || '')
   document.getElementById('pauseBtn').textContent = s.paused ? 'Resume' : 'Pause'
-  const pressure = (s.events || []).filter((e) => e.type === 'flow.pressure').slice(-1)[0]
-  const pr = document.getElementById('pressure')
-  if (pressure && s.simNow - pressure.at < 3 * 3600000) { pr.style.display = ''; pr.textContent = 'Simulator: ' + pressure.detail } else pr.style.display = 'none'
+  // Measured, not nominal: simulated time advanced over real time elapsed across the last ticks.
+  const tk = s.ticks || []
+  const rate = tk.length >= 2 ? (tk[tk.length - 1].simNow - tk[0].simNow) / Math.max(1, tk[tk.length - 1].realAt - tk[0].realAt) : null
+  document.getElementById('rate').innerHTML = rate ? 'running at <b>&times;' + Math.round(rate) + '</b> real time' : ''
   const c = s.counters
   const ppl = s.patients
   layoutLane('laneAgent', ppl, (p) => p.flow, (p) => p.bed, W, s.simNow, true)

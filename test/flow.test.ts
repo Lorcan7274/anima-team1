@@ -116,7 +116,7 @@ function fakeSim() {
   return { sim: sim as unknown as SimClient, writes, att, get now() { return now } }
 }
 
-test('a person is walked A&E -> ward -> checklist -> home, one station per tick, beds never double-booked', async () => {
+test('a person is walked A&E -> ward -> checklist -> home, admitted as soon as a bed is free, beds never double-booked', async () => {
   const f = fakeSim()
   f.att.a1 = arrival('a1', 'SIM-1', 'waiting', '2') // acuity 2: always admitted
   f.att.a2 = arrival('a2', 'SIM-2', 'waiting', '2')
@@ -127,9 +127,7 @@ test('a person is walked A&E -> ward -> checklist -> home, one station per tick,
   await tick(ctx) // ingest + assign/assess
   const [p1, p2] = state.patients
   assert.deepEqual([p1.flow, p2.flow], ['assessing', 'assessing'])
-  await tick(ctx) // refer
-  assert.deepEqual([p1.flow, p2.flow], ['take', 'take'])
-  await tick(ctx) // one bed: exactly one admitted, the other waits
+  await tick(ctx) // refer, and admit in the same step when a bed is free: one bed, so one waits
   const wards = state.patients.filter((p) => p.flow === 'ward')
   assert.equal(wards.length, 1)
   assert.equal(state.patients.filter((p) => p.flow === 'take').length, 1)

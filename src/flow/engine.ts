@@ -72,6 +72,8 @@ export interface FlowState extends BoardState {
   errors: number
   /** Simulator clock events worth narrating (flow.pressure etc.). */
   events: Array<{ at: number; type: string; detail: string }>
+  /** Real and sim time at the end of recent ticks, for the measured speed. */
+  ticks?: Array<{ realAt: number; simNow: number }>
 }
 
 export interface FlowCtx {
@@ -240,19 +242,10 @@ export async function stepPerson(ctx: FlowCtx, p: FlowPerson): Promise<void> {
       } else {
         await attendanceAction(ctx, p, 'refer', {})
         p.flow = 'take'; p.takeAt = now
+        await admitIfBed(ctx, p, now)
       }
     } else if (p.flow === 'take') {
-      const bed = freeBed(state)
-      if (bed === undefined) return // ward full: waits for a bed (this is the pressure signal)
-      p.bed = bed // reserve synchronously; concurrent workers see it before the write lands
-      try {
-        await attendanceAction(ctx, p, 'admit', { location: `AMU bed ${bed}` })
-      } catch (err) {
-        p.bed = undefined
-        throw err
-      }
-      admit(state, p, now, bed)
-      ctx.log(`${p.name}: admitted to AMU bed ${bed} (${p.items.length} discharge items)`)
+      await admitIfBed(ctx, p, now)
     } else if (p.flow === 'ward') {
       if (p.fitAt === undefined || now < p.fitAt) return // being treated
       const octx: OrchestratorContext = { sim: ctx.sim, world: state.world, board: state, log: ctx.log }
@@ -275,6 +268,22 @@ export async function stepPerson(ctx: FlowCtx, p: FlowPerson): Promise<void> {
     state.errors++
     ctx.log(`${p.name}: ${p.flow} step failed, will retry — ${p.error}`)
   }
+}
+
+/** Admit when a bed is free; otherwise the person waits on the take (the pressure signal). */
+async function admitIfBed(ctx: FlowCtx, p: FlowPerson, now: number): Promise<void> {
+  const { state } = ctx
+  const bed = freeBed(state)
+  if (bed === undefined) return
+  p.bed = bed // reserve synchronously; concurrent workers see it before the write lands
+  try {
+    await attendanceAction(ctx, p, 'admit', { location: `AMU bed ${bed}` })
+  } catch (err) {
+    p.bed = undefined
+    throw err
+  }
+  admit(state, p, now, bed)
+  ctx.log(`${p.name}: admitted to AMU bed ${bed} (${p.items.length} discharge items)`)
 }
 
 async function pool<T>(items: T[], limit: number, fn: (x: T) => Promise<void>) {
@@ -307,6 +316,7 @@ export async function tick(ctx: FlowCtx): Promise<void> {
   // Ward first so beds free up before the take is admitted.
   const order: FlowStage[] = ['ward', 'take', 'assessing', 'waiting']
   for (const stage of order) await pool(active.filter((p) => p.flow === stage), 4, (p) => stepPerson(ctx, p))
+  state.ticks = [...(state.ticks ?? []).slice(-9), { realAt: Date.now(), simNow: state.simNow }]
   state.busy = false
   state.phase = `Tick ${state.tick} done · ${wardOccupied(state).length}/${state.params.wardSize} beds · ${state.patients.filter((p) => p.flow === 'home').length} home`
 }
