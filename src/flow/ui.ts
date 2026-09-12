@@ -73,7 +73,6 @@ export const FLOW_PAGE = `<!doctype html>
   .fig .dots i.ok{background:var(--good)}
   .fig .dots i.bad{background:var(--critical)}
   .fig .badge{position:absolute;top:-2px;right:1px;width:8px;height:8px;border-radius:50%;background:var(--critical);border:1.5px solid var(--surface)}
-  .fig .treat{position:absolute;top:-2px;right:1px;width:8px;height:8px;border-radius:50%;background:var(--warning);border:1.5px solid var(--surface)}
   .fig.enter{opacity:0}
   .fig.home svg path,.fig.home svg circle{fill:var(--good)}
   .fig.ward svg path,.fig.ward svg circle{fill:var(--accent)}
@@ -206,12 +205,12 @@ function layoutLane(laneId, people, stageOf, bedOf, W, now, live) {
       const fit = inWard && live && p.fitAt !== undefined && now >= p.fitAt
       el.className = 'fig ' + (s.key === 'home' ? 'home' : inWard ? (fit ? 'fit' : 'ward') : s.key === 'take' ? 'take' : 'ae')
       const dots = el.querySelector('.dots')
-      if (inWard && live) {
-        dots.innerHTML = (p.items || []).map((i) => '<i class="' + (i.state === 'verified' ? 'ok' : i.state === 'failed' ? 'bad' : (i.state === 'awaiting_verification' || i.state === 'resolving') ? 'on' : '') + '"></i>').join('')
+      if (inWard) {
+        // Same dots on both lanes; only the live lane's ever change colour.
+        dots.innerHTML = (p.items || []).map((i) => '<i class="' + (!live ? '' : i.state === 'verified' ? 'ok' : i.state === 'failed' ? 'bad' : (i.state === 'awaiting_verification' || i.state === 'resolving') ? 'on' : '') + '"></i>').join('')
       } else dots.innerHTML = ''
-      el.querySelector('.badge')?.remove(); el.querySelector('.treat')?.remove()
+      el.querySelector('.badge')?.remove()
       if (live && p.error && s.key !== 'home') el.insertAdjacentHTML('beforeend', '<span class="badge"></span>')
-      else if (inWard && live && !fit) el.insertAdjacentHTML('beforeend', '<span class="treat"></span>')
       el.title = p.name + ' · ' + esc(p.complaint) + ' · acuity ' + p.acuity +
         (inWard ? (live ? (fit ? ' · medically fit, discharge checklist running' : ' · being treated, fit in ' + rel(p.fitAt, now)) : ' · in a bed (model)') : '') +
         (s.key === 'home' ? ' · home' + (p.homeFrom === 'ae' ? ' from A&E' : ' from the ward') : '') +
