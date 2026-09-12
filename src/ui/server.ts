@@ -573,9 +573,11 @@ const STATE_HELP = {
   clinical_hold:         (svc) => 'Stuck. Only a clinician can clear this; the agent will not.',
   blocked_human:         (svc) => 'Stuck. Needs a decision no system can make.',
 }
+const simOutage = (i) => i.state === 'failed' && /HTTP (0|5[0-9][0-9])\b|no response within/.test(i.error || '')
 const stateHelp = (i) => {
   const h = STATE_HELP[i.state]
   if (!h) return ''
+  if (simOutage(i)) return 'Stuck. The simulator did not respond (' + esc((i.error || '').match(/HTTP [0-9]+|no response[^)]*/)[0]) + '). Nothing was changed; re-run against the same world to retry.'
   if (i.state === 'verified' && i.owner === 'clinician' && i.verification) return 'Completed. ' + esc(String(i.verification.observed).replace(/^cleared/, 'Cleared')) + '.'
   return h(SERVICE_IN_PROSE[i.owner] || i.owner)
 }
@@ -867,6 +869,7 @@ function renderModalBody() {
     parts.push('<div class="group"><h3>Plan &amp; approval</h3>' +
       (i.proposedAction ? kv('Plan', esc(i.proposedAction)) : '') +
       (isHuman(i) ? '' : kv('Approval', i.approval ? 'Approved by ' + esc(i.approval.by) : 'Not yet — awaiting staff approval')) +
+      (i.error ? kv('<span class="err">Failed</span>', '<span class="err">' + esc(i.error) + '</span>' + (simOutage(i) ? ' <span style="color:var(--ink-3)">— simulator outage, not a record problem</span>' : '')) : '') +
       (i.plan && i.plan.length && !i.resolution ? kv('Steps', '<ol class="plan" style="margin:0">' + i.plan.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>') : '') +
       (i.humanReason ? kv('Needs a human', esc(i.humanReason)) : '') + '</div>')
     const wire = (s0.trace || []).filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id))

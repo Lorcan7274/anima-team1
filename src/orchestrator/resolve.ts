@@ -195,6 +195,20 @@ async function rebookAsTelephone(ctx: OrchestratorContext, item: ChecklistItem):
 const resolveMedicines: Resolver = async (ctx, item) => {
   const view = await ctx.sim.siteView('pharmacy', { patient: item.patientId, limit: 60 })
   const resources = (view.resources ?? []) as any[]
+  // Resume where a previous attempt got to: a chain that reached 'collected'
+  // or 'dispensed' before the simulator dropped the connection must not be
+  // reported as "no approved prescription" on the retry.
+  const done = resources.find((r) => r.kind === 'prescription' && r.status === 'collected')
+  if (done) {
+    return { action: 'link+dispense+collect (already collected on a previous attempt)', resourceId: done.id, idempotencyKey: key(ctx, item, 'link'), atSimTime: await simNow(ctx) }
+  }
+  const dispensed = resources.find((r) => r.kind === 'prescription' && r.status === 'dispensed')
+  if (dispensed) {
+    const cur = await ctx.sim.siteAction('pharmacy', {
+      type: 'collect', patientId: item.patientId, resourceId: dispensed.id, expectedVersion: dispensed.version,
+    }, key(ctx, item, 'collect'))
+    return { action: 'collect (resumed after an earlier dispense)', resourceId: cur.id, idempotencyKey: key(ctx, item, 'collect'), atSimTime: await simNow(ctx) }
+  }
   const rx = resources.find((r) => r.kind === 'prescription' && r.status === 'approved')
   if (!rx) throw new Error('no approved prescription found in pharmacy view')
   const product = resources.find(

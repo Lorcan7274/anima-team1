@@ -120,11 +120,18 @@ if (existsSync('fallback-board.json')) {
   try {
     const snap = JSON.parse(readFileSync('fallback-board.json', 'utf8'))
     if (snap.world === world) {
+      let retried = 0
       for (const sp of snap.patients ?? []) {
         const row = board.patients.find((p) => p.patientId === sp.patientId)
         if (row) { row.items = sp.items ?? []; row.insights = sp.insights; row.dischargedAt = sp.dischargedAt }
+        // A failed item (simulator outage, version clash) is retried on re-run:
+        // back to approved, fresh attempt number, so the keys are new too.
+        for (const item of row?.items ?? []) {
+          if (item.state === 'failed') { item.state = 'approved'; delete item.error; retried++ }
+        }
       }
       if (snap.fitAt) board.fitAt = snap.fitAt
+      if (retried) board.log.push(`(re-run: retrying ${retried} failed item(s))`)
       board.log = [...(snap.log ?? []), '(state restored from snapshot — safe re-run)']
       console.log('restored prior state for this world from fallback-board.json')
     }
