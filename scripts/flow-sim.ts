@@ -7,6 +7,7 @@
  *   node scripts/flow-sim.ts                      # new world, UI on http://localhost:4700
  *   node scripts/flow-sim.ts --world <name>       # join a specific world (join code!)
  *   node scripts/flow-sim.ts --step 30 --beds 12  # sim-minutes per tick, ward size
+ *   node scripts/flow-sim.ts --stay 60-240        # assumed treatment stay before fit, sim-minutes (default 120-480)
  *   node scripts/flow-sim.ts --llm                # let the model draft letters (slower; default: canned drafts)
  *   node scripts/flow-sim.ts --replay             # no simulator: animate flow-state.json
  *   node scripts/flow-sim.ts --port 4701          # serve the screen elsewhere (default 4700)
@@ -34,7 +35,13 @@ if (flag('replay')) {
   state.phase = 'Replay of a recorded run — simulator not connected'
   startFlowUi(state, { replay: true, port: Number(arg('port') ?? 4700) })
 } else {
-  const params = { ...DEFAULT_FLOW, stepMinutes: Number(arg('step') ?? DEFAULT_FLOW.stepMinutes), wardSize: Number(arg('beds') ?? DEFAULT_FLOW.wardSize) }
+  const stay = (arg('stay') ?? '').split('-').map(Number)
+  const params = {
+    ...DEFAULT_FLOW,
+    stepMinutes: Number(arg('step') ?? DEFAULT_FLOW.stepMinutes),
+    wardSize: Number(arg('beds') ?? DEFAULT_FLOW.wardSize),
+    stayMinutes: (stay.length === 2 && stay.every((n) => n > 0) ? [stay[0], stay[1]] : DEFAULT_FLOW.stayMinutes) as [number, number],
+  }
   const worldName = arg('world') ?? `discharge-flow-${Math.random().toString(16).slice(2, 14)}`
   const state = newFlowState(worldName, params)
   state.drafts = flag('llm') ? 'model' : 'canned'

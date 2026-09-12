@@ -89,6 +89,7 @@ demo, discharge when everything is verified.
 ```bash
 npm run flow                              # new world, screen on http://localhost:4700
 npm run flow -- --step 30 --beds 12       # sim-minutes per tick, ward size (defaults)
+npm run flow -- --stay 60-240             # assumed treatment stay before fit, sim-minutes (default 120-480)
 npm run flow -- --llm                     # let the model draft the letters (slower)
 npm run flow:replay                       # no simulator: animate the last flow-state.json (add -- --port 4701 to run beside a live one)
 ```
