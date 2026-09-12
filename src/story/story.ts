@@ -42,7 +42,7 @@ export interface StoryCounters {
   patientsHomeBaseline: number
   /**
    * For every bed the agent world has freed by t: when the manual model would
-   * free it, minus when the agent did — summed. The plan's headline number.
+   * free it, minus when the agent did, summed. The plan's headline number.
    * Patients the model never discharges (external decision) contribute nothing.
    */
   bedHoursSaved: number

@@ -5,7 +5,7 @@
  *
  *   node scripts/serve-fallback.ts [path/to/board.json]
  *
- * Approve / clear-hold / escalate still work — they mutate the local copy,
+ * Approve / clear-hold / escalate still work, they mutate the local copy,
  * so the presenter can walk the whole flow offline.
  */
 import { readFileSync } from 'node:fs'
@@ -14,5 +14,5 @@ import { startUi } from '../src/ui/server.ts'
 
 const path = process.argv[2] ?? 'fallback-board.json'
 const board = JSON.parse(readFileSync(path, 'utf8')) as BoardState
-board.log.push(`(fallback mode — serving snapshot from ${path}, simulator not connected)`)
+board.log.push(`(fallback mode, serving snapshot from ${path}, simulator not connected)`)
 startUi(board)

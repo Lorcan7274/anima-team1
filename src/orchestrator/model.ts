@@ -2,7 +2,7 @@
  * Shared types for the discharge-readiness orchestrator.
  *
  * This is the meeting point for all workstreams (detectors, resolvers/verifiers,
- * UI, demo scripting) — change it by agreement, everything depends on it.
+ * UI, demo scripting), change it by agreement, everything depends on it.
  *
  * Core rules (see discharge-orchestrator-brief.md):
  * - Orchestration state lives HERE, app-side, keyed by sim resourceId.
@@ -15,7 +15,7 @@ import type { SimClient } from '../sim/index.ts'
 import type { TraceEntry } from '../sim/http.ts'
 
 export type ItemState =
-  | 'proposed' // barrier identified, action proposed — awaiting staff approval
+  | 'proposed' // barrier identified, action proposed, awaiting staff approval
   | 'approved' // staff approved the operational plan; agent may act
   | 'resolving'
   | 'awaiting_verification'
@@ -31,7 +31,7 @@ export type OwnerSite =
   | 'pharmacy'
   | 'diagnostics'
   | 'wearables'
-  | 'clinician' // clinical_hold items — owned by a person, not a service
+  | 'clinician' // clinical_hold items, owned by a person, not a service
 
 /** A quoted piece of record evidence justifying a checklist item. */
 export interface Evidence {
@@ -40,14 +40,14 @@ export interface Evidence {
   site: OwnerSite | 'patient-directory'
   /** Verbatim or lightly trimmed text shown to the user. */
   quote: string
-  /** Sim-time ms the underlying record was created — lets the UI say "3 days waiting". */
+  /** Sim-time ms the underlying record was created, lets the UI say "3 days waiting". */
   raisedAt?: number
 }
 
 /** What a resolver did, kept for the audit trail and for the verifier. */
 export interface Resolution {
   action: string
-  /** Resource the resolver created or mutated — the ONLY thing verify checks. */
+  /** Resource the resolver created or mutated, the ONLY thing verify checks. */
   resourceId: string
   /** Secondary resources (e.g. the FBC order beside the U&E); verified too. */
   alsoResourceIds?: string[]
@@ -70,11 +70,11 @@ export interface ChecklistItem {
   owner: OwnerSite
   state: ItemState
   evidence: Evidence[]
-  /** What the agent will do if approved — shown at the approval step. */
+  /** What the agent will do if approved, shown at the approval step. */
   proposedAction?: string
   /**
    * The concrete steps the resolver will take, then the check the verifier
-   * will make, in order — what staff review before approving. Written by
+   * will make, in order, what staff review before approving. Written by
    * resolve.ts so the plan is the code's own description of itself.
    */
   plan?: string[]
@@ -98,7 +98,7 @@ export interface ChecklistItem {
 export interface PatientFact {
   label: string
   value: string
-  /** Out of range or a risk — shown in the alert colour. */
+  /** Out of range or a risk, shown in the alert colour. */
   bad?: boolean
   /** Where it was read from, e.g. "diagnostics · U&E report r-12". */
   source: string
@@ -146,7 +146,7 @@ export interface BoardState {
   /** Random per-process id, part of every idempotency key so a fresh run never reuses one. */
   runId?: string
   simNow: number
-  /** Sim time the cohort was deemed medically fit — the story panel's t=0. */
+  /** Sim time the cohort was deemed medically fit, the story panel's t=0. */
   fitAt?: number
   patients: PatientRow[]
   /** Human-readable audit log, newest last. */
@@ -155,7 +155,7 @@ export interface BoardState {
   phase?: string
   /** True while the runner is actively calling the simulator or the model. */
   busy?: boolean
-  /** Every simulator request this run made — the compliance record. */
+  /** Every simulator request this run made, the compliance record. */
   trace?: TraceEntry[]
 }
 

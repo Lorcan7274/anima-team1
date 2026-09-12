@@ -69,13 +69,13 @@ export interface TraceEntry {
   idempotencyKey?: string
   status: number
   ok: boolean
-  /** Request body, JSON-stringified and truncated — the compliance record. */
+  /** Request body, JSON-stringified and truncated, the compliance record. */
   sent?: string
   /** id/status of the resource the sim returned, when present. */
   got?: string
-  /** Parsed request body — writes only, so the trace stays small. */
+  /** Parsed request body, writes only, so the trace stays small. */
   request?: unknown
-  /** Parsed response body — writes only. */
+  /** Parsed response body, writes only. */
   reply?: unknown
   /** Human-readable reason when the request failed. */
   error?: string

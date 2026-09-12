@@ -1,7 +1,7 @@
 /**
  * Detection reads the record and produces the checklist. These tests feed it
  * the seeded shapes the brief documents and check that every item, state,
- * owner and evidence quote comes from the record — never from a template.
+ * owner and evidence quote comes from the record, never from a template.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

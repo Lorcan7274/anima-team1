@@ -1,7 +1,7 @@
 /**
  * Verifiers: after time advances, re-read the owning service and check the
  * SPECIFIC resource the resolver created. Never "any matching resource for
- * this patient" — the seeded world contains an old sent summary, old visits
+ * this patient", the seeded world contains an old sent summary, old visits
  * and old tasks that would green-light a lazy verifier instantly.
  */
 import type { ChecklistItem, OrchestratorContext, Verification } from './model.ts'
@@ -65,7 +65,7 @@ const verifyVisit: Verifier = async (ctx, item) => {
 }
 
 /**
- * Our summary (by id) must show as sent in the GP's own documents feed —
+ * Our summary (by id) must show as sent in the GP's own documents feed,
  * unless the item is draft-only (blocked case), where the draft existing on
  * the hospital side is the correct end state.
  */

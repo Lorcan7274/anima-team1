@@ -8,7 +8,7 @@
  * documents feed, and the clock only moves when advanceClock is called.
  *
  * Tests hold the `views` reference and may mutate it to simulate the world
- * moving on (a visit completing, a lab resulting) — usually from `onAdvance`.
+ * moving on (a visit completing, a lab resulting), usually from `onAdvance`.
  */
 import type { SimClient } from '../../src/sim/index.ts'
 
@@ -183,7 +183,7 @@ export function amiraHospitalView(): any[] {
     { id: 'r-3', kind: 'prescription', patientId: 'SIM-000001', title: 'Discharge medication supply', status: 'approved', version: 2, createdAt: FIT - 86_400_000,
       data: { drug: 'Furosemide tablets' } },
     { id: 'r-6', kind: 'message', patientId: 'SIM-000001', title: 'Respiratory: review worsening oxygen requirement', status: 'open', priority: 'urgent', version: 1, createdAt: FIT - 3_600_000,
-      data: { text: 'Please review — oxygen requirement rising overnight.' } },
+      data: { text: 'Please review, oxygen requirement rising overnight.' } },
     { id: 'r-7', kind: 'message', patientId: 'SIM-000001', title: 'Discharge & flow: confirm medication handover', status: 'open', priority: 'urgent', version: 1,
       data: { text: 'Confirm medication handover before discharge.' } },
   ]

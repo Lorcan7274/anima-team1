@@ -5,7 +5,7 @@
  *
  * Needs OPENAI_API_KEY in .env (gitignored). Without a key, or on any model
  * error, every function falls back to an honest canned draft so the demo,
- * tests and teammates without the key keep working — fallbacks are logged.
+ * tests and teammates without the key keep working, fallbacks are logged.
  * Override the model with OPENAI_MODEL.
  */
 import { z } from 'zod'
@@ -30,7 +30,7 @@ export type LlmSource = 'model' | 'fallback'
 
 /**
  * Runs a structured model call and reports HOW the answer was produced.
- * Callers must surface source === 'fallback' in the UI — a judge asking
+ * Callers must surface source === 'fallback' in the UI, a judge asking
  * "is that the model?" must never get a silent "no".
  */
 async function structured<T>(
@@ -84,7 +84,7 @@ export async function proposeBarriersFromText(
   source: string,
   text: string,
 ): Promise<{ barriers: ProposedBarrier[]; source: LlmSource }> {
-  // Stable instructions first, variable record text last — the OpenAI prompt
+  // Stable instructions first, variable record text last, the OpenAI prompt
   // cache matches on stable prefixes, so keep everything constant up front.
   const out = await structured(
     'barrier_reader',
@@ -131,11 +131,11 @@ export async function draftDischargeSummary(context: {
       `Blood results: ${context.bloodSummary}\n` +
       `Arrangements already made by the discharge agent:\n${context.planned.map((t) => `- ${t}`).join('\n')}\n\n` +
       `medicationChanges must state the medicines reconciliation position exactly as the extracts ` +
-      `evidence it (completed, outstanding, or not documented) — never assert a reconciliation ` +
+      `evidence it (completed, outstanding, or not documented), never assert a reconciliation ` +
       `or a medication change the extracts do not show. Use only the record above; do not carry ` +
       `facts from any other patient. Keep each section to 1-3 sentences, operational tone.`,
     () => ({
-      // Generic template — must read correctly for ANY patient, not just Amira.
+      // Generic template, must read correctly for ANY patient, not just Amira.
       reason: `Admitted for management of ${context.conditions[0]?.toLowerCase() ?? 'the documented condition'}.`,
       course: 'Inpatient course as documented; operationally ready for discharge planning pending clinician sign-off.',
       diagnoses: `${context.conditions.join('; ') || 'As per record'}.`,
@@ -161,7 +161,7 @@ export type Escalation = z.infer<typeof EscalationSchema>
 
 /**
  * Draft the escalation handover for a barrier the agent cannot clear.
- * The output NEVER resolves the barrier — it names the owner and next step.
+ * The output NEVER resolves the barrier, it names the owner and next step.
  */
 export async function draftEscalation(context: {
   patientName: string
@@ -204,7 +204,7 @@ export async function draftClinicalDetails(
     DetailsSchema,
     `Write the clinicalDetails field for a ROUTINE post-discharge blood monitoring order. ` +
       `${who}Result history: ${bloodSummary} ` +
-      `Be accurate about trends — do not exaggerate or add conditions not listed. 1-2 sentences.`,
+      `Be accurate about trends, do not exaggerate or add conditions not listed. 1-2 sentences.`,
     () => ({ clinicalDetails: `Routine post-discharge monitoring${conditions.length ? ` (${conditions.join(', ')})` : ''}. ${bloodSummary}` }),
   )
   return { text: out.value.clinicalDetails, source: out.source }

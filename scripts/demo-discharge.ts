@@ -9,7 +9,7 @@
  *   node scripts/demo-discharge.ts --ward              # also track the two seeded inpatients (SIM-000007/8)
  *
  * With the UI up and no --approve, the runner WAITS for the "Approve plan"
- * click — that is the staff-approval demo beat. Board snapshots are written to
+ * click, that is the staff-approval demo beat. Board snapshots are written to
  * fallback-board.json after each phase (serve offline via scripts/serve-fallback.ts).
  * Stage demo: run with a brand-new unguessable world minutes before demoing.
  */
@@ -35,12 +35,12 @@ const WARD_EXTRAS = ['SIM-000007', 'SIM-000008']
 const worldName = arg('world') ?? randomWorldName()
 console.log(`world: ${worldName}`)
 
-// Serve the UI immediately with an empty board — it fills in live as setup
+// Serve the UI immediately with an empty board, it fills in live as setup
 // and detection progress, so the browser never sees a connection refused.
 const board: import('../src/orchestrator/model.ts').BoardState = { world: worldName, runId: newRunId(), simNow: 0, patients: [], log: [], trace: [], phase: 'Joining the simulator world', busy: true }
 if (!flag('no-ui')) startUi(board)
 
-// Every simulator request lands in the board's trace — the compliance record —
+// Every simulator request lands in the board's trace, the compliance record,
 // annotated with the plain-language headline and outcome the UI shows.
 const traceHook = (entry: import('../src/sim/http.ts').TraceEntry) => {
   board.trace!.push(annotate(entry))
@@ -59,12 +59,12 @@ const directKey = arg('key') ?? savedKey
 const { sim, world } = directKey
   ? connectWorld(worldName, directKey, traceHook)
   : await joinWorld(worldName, traceHook)
-if (directKey) console.log('connected with known key — /api/keys skipped')
+if (directKey) console.log('connected with known key, /api/keys skipped')
 ;(board as { apiKey?: string }).apiKey = (sim as { apiKey?: string }).apiKey
 const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }
 // Surface fatal errors on the page instead of leaving a dead tab.
 const fatal = (err: unknown) => {
-  board.phase = `Run failed: ${String((err as Error)?.message ?? err).slice(0, 160)} — Ctrl-C and re-run with --world ${board.world}`
+  board.phase = `Run failed: ${String((err as Error)?.message ?? err).slice(0, 160)}, Ctrl-C and re-run with --world ${board.world}`
   board.busy = false
   console.error(err)
 }
@@ -81,7 +81,7 @@ async function withRetry<T>(what: string, fn: () => Promise<T>, attempts = 4): P
     } catch (err) {
       if (i >= attempts) throw err
       const wait = i * 5000
-      phase(`${what} — simulator not responding, retrying (attempt ${i + 1}/${attempts})`)
+      phase(`${what}, simulator not responding, retrying (attempt ${i + 1}/${attempts})`)
       board.log.push(`retrying after: ${String((err as Error).message).slice(0, 120)}`)
       await new Promise((r) => setTimeout(r, wait))
     }
@@ -89,7 +89,7 @@ async function withRetry<T>(what: string, fn: () => Promise<T>, attempts = 4): P
 }
 
 console.log('setup: admitting Amira to AMU bed 12 (assign -> assess -> refer -> admit)')
-phase('Admitting Amira to AMU bed 12 — walking the attendance stage machine')
+phase('Admitting Amira to AMU bed 12, walking the attendance stage machine')
 await withRetry('Admitting Amira', () => admitToWard(sim, AMIRA, 'AMU bed 12'))
 board.log.push('Amira admitted to AMU bed 12')
 // Eleanor is seeded on the take list in AMU bed 1; bring her fully in.
@@ -132,7 +132,7 @@ if (existsSync('fallback-board.json')) {
       }
       if (snap.fitAt) board.fitAt = snap.fitAt
       if (retried) board.log.push(`(re-run: retrying ${retried} failed item(s))`)
-      board.log = [...(snap.log ?? []), '(state restored from snapshot — safe re-run)']
+      board.log = [...(snap.log ?? []), '(state restored from snapshot, safe re-run)']
       console.log('restored prior state for this world from fallback-board.json')
     }
   } catch { /* unreadable snapshot: start fresh */ }
@@ -146,13 +146,13 @@ const ctx: OrchestratorContext = {
     console.log(`  ${message}`)
   },
 }
-phase('Reading the records — the model is detecting barriers')
+phase('Reading the records, the model is detecting barriers')
 await detectAll(ctx)
 phase('Detection complete', false)
 
 console.log('\n=== checklist ===')
 for (const p of board.patients) {
-  console.log(`${p.name} (${p.patientId}) — ${p.stage} ${p.location ?? ''}`)
+  console.log(`${p.name} (${p.patientId}), ${p.stage} ${p.location ?? ''}`)
   for (const i of p.items) console.log(`  [${i.state}] (${i.owner}) ${i.title}`)
 }
 
@@ -194,7 +194,7 @@ if (flag('detect-only')) {
     await dischargeReady()
     snapshot()
     if (headless) {
-      if (holds().length) ctx.log(`${holds().length} clinical hold(s) remain — headless run without --clear-holds, not discharging`)
+      if (holds().length) ctx.log(`${holds().length} clinical hold(s) remain, headless run without --clear-holds, not discharging`)
       break
     }
     const left = pendingWork(board)
@@ -214,7 +214,7 @@ if (flag('detect-only')) {
   for (const p of board.patients) {
     if (p.stage === 'discharged') continue
     const open = p.items.filter((i) => i.state !== 'verified')
-    ctx.log(`${p.name} NOT discharged — ${open.length} unresolved: ${open.map((i) => `${i.id}[${i.state}]`).join(', ')}`)
+    ctx.log(`${p.name} NOT discharged, ${open.length} unresolved: ${open.map((i) => `${i.id}[${i.state}]`).join(', ')}`)
   }
   phase('Run complete', false)
   snapshot()

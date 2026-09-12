@@ -86,7 +86,7 @@ export async function runUntilSettled(ctx: OrchestratorContext, opts: RunOptions
     const open = ctx.board.patients.flatMap((p) => p.items).filter((i) => !isSettled(i) && i.state !== 'failed')
     if (open.length === 0) return
     if (open.every((i) => i.state === 'proposed')) {
-      ctx.log('all open items await staff approval — not acting')
+      ctx.log('all open items await staff approval, not acting')
       return
     }
     ctx.log(`--- round ${round}: ${open.length} open item(s) ---`)
@@ -105,7 +105,7 @@ export async function runUntilSettled(ctx: OrchestratorContext, opts: RunOptions
 
 /**
  * Staff approval of the operational coordination plan. Approves 'proposed'
- * items only — clinical holds and blocked_human items are untouchable here.
+ * items only, clinical holds and blocked_human items are untouchable here.
  */
 export function approveAll(board: BoardState, approver: string, patientId?: string): number {
   let count = 0
@@ -125,7 +125,7 @@ export function approveAll(board: BoardState, approver: string, patientId?: stri
 
 /**
  * Prepare an escalation handover for a blocked_human item: responsible team,
- * next action, drafted note. The item STAYS blocked — escalation makes
+ * next action, drafted note. The item STAYS blocked, escalation makes
  * ownership visible, it never resolves the barrier.
  */
 export async function prepareEscalation(board: BoardState, itemId: string): Promise<boolean> {
@@ -164,7 +164,7 @@ export function saveLetter(board: BoardState, patientId: string, sections: Recor
   return true
 }
 
-/** A clinician clicked "confirm" on a hold — the only way a hold clears. */
+/** A clinician clicked "confirm" on a hold, the only way a hold clears. */
 export function clearHold(board: BoardState, itemId: string, clinician: string): boolean {
   for (const p of board.patients) {
     const item = p.items.find((i) => i.id === itemId && i.state === 'clinical_hold')
