@@ -203,7 +203,6 @@ const PAGE = `<!doctype html>
       <div><h1>Ward round</h1>
         <div class="subtitle">Barriers detected from the record · resolved in the owning service · verified after time moves</div></div>
       <span id="status"></span>
-      <button class="ghost" onclick="openModal('trace')">Full trace</button>
       <button class="primary" id="approveBtn" style="display:none" onclick="approve()">Approve plan</button>
     </div>
     <div class="kpis" id="kpis"></div>
