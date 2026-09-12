@@ -20,3 +20,10 @@ test('journey UI has the five gates, review-before-approve, confirmations and th
   assert.match(PAGE, /Simulator did not respond/)
   assert.doesNotMatch(PAGE, /Penicillin|Dr S Sohrabi|Potassium 5\.5/, 'no hard-coded patient facts')
 })
+
+test('the page boots blank behind a loading screen that names the setup step', () => {
+  assert.match(PAGE, /<div class="boot" id="boot"/)
+  assert.match(PAGE, /<div class="app" hidden>/, 'nothing but the loading screen until the ward is ready')
+  assert.match(PAGE, /id="bootPhase"/)
+  for (const step of ['Joining the simulator world', 'Admitting patients', 'Loading patient records', 'Reading the records']) assert.match(PAGE, new RegExp(step))
+})

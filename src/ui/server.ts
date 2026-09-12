@@ -113,7 +113,10 @@ export const PAGE = `<!doctype html>
 <title>Homeward</title>
 <style>
 :root{--nhs-blue:#005eb8;--nhs-dark:#003087;--nhs-green:#007f3b;--nhs-red:#d5281b;--nhs-amber:#ffb81c;--ink:#212b32;--muted:#4c6272;--line:#d8dde0;--wash:#f0f4f5;--pale:#e8edff;--white:#fff;--shadow:0 5px 18px rgba(33,43,50,.10);font-family:"Frutiger W01",Arial,sans-serif}
-*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:var(--wash);color:var(--ink);font-family:inherit;-webkit-font-smoothing:antialiased}button{font:inherit;cursor:pointer}.app{min-height:100vh}.nhsbar{height:8px;background:var(--nhs-blue)}
+*{box-sizing:border-box}[hidden]{display:none!important}
+.boot{position:fixed;inset:0;z-index:100;background:var(--wash);display:grid;place-items:center;text-align:center;padding:24px}.boot.off{display:none}.boot .card{max-width:520px}.boot .homeward-logo{width:64px;height:64px;margin:0 auto 18px}.boot h2{font-size:24px;margin:0 0 6px;color:var(--nhs-dark)}.boot .phase{font-size:16px;color:var(--ink);min-height:24px;margin:0 0 22px}.spinner{width:52px;height:52px;border:5px solid var(--line);border-top-color:var(--nhs-blue);border-radius:50%;margin:0 auto 22px;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.spinner{animation:none;border-top-color:var(--line);border-left-color:var(--nhs-blue)}}
+.boot ol{list-style:none;padding:0;margin:0 auto;display:grid;gap:8px;text-align:left;width:fit-content}.boot li{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--muted)}.boot li i{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-size:12px;font-style:normal;flex:none;color:#fff}.boot li.done{color:var(--ink)}.boot li.done i{background:var(--nhs-green);border-color:var(--nhs-green)}.boot li.done i:before{content:"✓"}.boot li.now{color:var(--ink);font-weight:700}.boot li.now i{border-color:var(--nhs-blue);background:var(--nhs-blue)}.boot li.now i:before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;display:block}
+.boot .note{font-size:12px;color:var(--muted);margin:22px 0 0}body{margin:0;background:var(--wash);color:var(--ink);font-family:inherit;-webkit-font-smoothing:antialiased}button{font:inherit;cursor:pointer}.app{min-height:100vh}.nhsbar{height:8px;background:var(--nhs-blue)}
 .top{min-height:86px;padding:12px 42px;display:flex;align-items:center;gap:18px;background:var(--white);border-bottom:1px solid var(--line);flex-wrap:wrap}.wordmark{display:flex;align-items:center;gap:14px}.homeward-logo{width:54px;height:54px;display:block}.homeward-logo svg{width:100%;height:100%;display:block}.wordmark h1{font-size:24px;margin:0;color:var(--nhs-dark)}.wordmark p{font-size:13px;color:var(--muted);margin:2px 0 0}.topspace{flex:1}
 .shell{display:grid;grid-template-columns:270px minmax(0,1fr);align-items:start}.side{background:var(--white);border-right:1px solid var(--line);min-height:calc(100vh - 94px);padding:22px 16px;position:sticky;top:0}.side .find{width:100%;border:2px solid #768692;padding:10px 12px;font:14px "Frutiger W01",Arial,sans-serif;color:var(--ink)}.side .find:focus{outline:4px solid #ffdd00;outline-offset:0;border-color:#212b32}.side .label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}.plist{display:flex;flex-direction:column;gap:6px}.prow{display:grid;grid-template-columns:40px 1fr;gap:10px;align-items:center;width:100%;text-align:left;border:0;border-left:5px solid transparent;padding:10px 10px 10px 8px;background:var(--wash);color:inherit}.prow .av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;background:#fff;color:var(--nhs-dark)}.prow b{display:block;font-size:14px}.prow small{display:block;font-size:11px;color:var(--muted);margin-top:2px}.prow em{display:block;font-size:11px;font-style:normal;font-weight:700;margin-top:3px}.prow.good{background:#e9f5ed}.prow.good em{color:var(--nhs-green)}.prow.bad{background:#fbeae8}.prow.bad em{color:var(--nhs-red)}.prow.warn{background:#fff4cf}.prow.warn em{color:#5c4200}.prow.on.good{border-left-color:var(--nhs-green)}.prow.on.bad{border-left-color:var(--nhs-red)}.prow.on.warn{border-left-color:var(--nhs-amber)}.prow.on{box-shadow:var(--shadow)}.prow:not(.on){opacity:.8}.side .none{font-size:12px;color:var(--muted);padding:10px 4px}
 .patient{display:flex;align-items:center;gap:12px}.patient-avatar{width:48px;height:48px;border-radius:50%;background:#d9e5f5;display:grid;place-items:center;color:var(--nhs-dark);font-weight:700}.patient strong,.patient>span:not(.patient-avatar),.patient>span>span{display:block}.patient strong{font-size:15px}.patient span{font-size:12px;color:var(--muted);margin-top:2px}.allergy{background:#fbeae8;color:var(--nhs-red);font-weight:700;font-size:12px;padding:8px 10px}.allergy.none{background:var(--wash);color:var(--muted)}
@@ -143,7 +146,22 @@ details.reqdd{margin:4px 0 0 88px}details.reqdd summary{cursor:pointer;color:var
 </style>
 </head>
 <body>
-<div class="app">
+<div class="boot" id="boot" role="status" aria-live="polite">
+  <div class="card">
+    <span class="homeward-logo" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M8 29 32 8l24 21v27H8Z" fill="#005eb8"/><path d="M20 24v24h8V37h8v11h8V24h-8v7h-8v-7Z" fill="#fff"/><path d="M40 45h12l-5-5 4-4 12 12-12 12-4-4 5-5H40Z" fill="#00a499"/></svg></span>
+    <div class="spinner" aria-hidden="true"></div>
+    <h2>Setting up the ward round</h2>
+    <p class="phase" id="bootPhase">Connecting to Homeward…</p>
+    <ol id="bootSteps">
+      <li data-step="1"><i></i>Joining the simulator world</li>
+      <li data-step="2"><i></i>Admitting patients to the ward</li>
+      <li data-step="3"><i></i>Loading patient records</li>
+      <li data-step="4"><i></i>Reading the records for discharge barriers</li>
+    </ol>
+    <p class="note">Nothing is shown until every record has been read; no action is taken until staff approve the plan.</p>
+  </div>
+</div>
+<div class="app" hidden>
   <div class="nhsbar"></div>
   <header class="top">
     <div class="wordmark"><span class="homeward-logo" aria-label="Homeward logo"><svg viewBox="0 0 64 64" role="img" aria-hidden="true"><path d="M8 29 32 8l24 21v27H8Z" fill="#005eb8"/><path d="M20 24v24h8V37h8v11h8V24h-8v7h-8v-7Z" fill="#fff"/><path d="M40 45h12l-5-5 4-4 12 12-12 12-4-4 5-5H40Z" fill="#00a499"/></svg></span><span><h1>Homeward</h1><p>Clinical discharge coordination</p></span></div>
@@ -301,8 +319,39 @@ const agentDraft = (s, p) => {
 }
 const LETTER_FIELDS = [['reason', 'Reason for admission', true], ['course', 'Clinical course', false], ['diagnoses', 'Diagnoses', false], ['medicationChanges', 'Discharge medicines and changes', false], ['results', 'Pertinent results', false], ['followUp', 'Follow-up and support', false], ['gpActions', 'Actions for the GP practice', true]]
 
+// --- Boot screen: blank page with a spinner and the current setup step until the ward is ready ---
+let booted = false
+const SETUP_RE = /joining|admitting|confirming|loading patient|reading the records|detect/i
+function bootStep(phase) {
+  const t = (phase || '').toLowerCase()
+  if (/joining/.test(t)) return 1
+  if (/admitting|confirming/.test(t)) return 2
+  if (/loading patient/.test(t)) return 3
+  if (/reading the records|detect/.test(t)) return 4
+  return 0
+}
+function renderBoot(s) {
+  const phase = s ? (s.phase || 'Joining the simulator world') : 'Connecting to Homeward…'
+  document.getElementById('bootPhase').textContent = phase
+  const step = s ? bootStep(s.phase) : 0
+  for (const li of document.querySelectorAll('#bootSteps li')) {
+    const n = Number(li.dataset.step)
+    li.className = n < step ? 'done' : n === step ? 'now' : ''
+  }
+}
+function wardReady(s) {
+  if (!s.patients.length) return false
+  return !(s.busy && SETUP_RE.test(s.phase || ''))
+}
+
 function render(s) {
   lastState = s
+  if (!booted) {
+    if (!wardReady(s)) { renderBoot(s); return }
+    booted = true
+    document.getElementById('boot').classList.add('off')
+    document.querySelector('.app').hidden = false
+  }
   if (!selectedPatient || !s.patients.some((p) => p.patientId === selectedPatient)) selectedPatient = (s.patients[0] || {}).patientId
   const p = patient(s)
   const flt = patFilter.trim().toLowerCase()
@@ -522,7 +571,9 @@ async function tick(force) {
     if (!force && text === lastText) return
     lastText = text
     render(JSON.parse(text))
-  } catch {}
+  } catch {
+    if (!booted) renderBoot(null)
+  }
 }
 setInterval(tick, 1500); tick()
 </script></body></html>`
