@@ -54,6 +54,8 @@ Sites are `gp`, `hospital`, `pharmacy`, and `patient`. Failed calls throw `SimAp
 
 Mutating calls accept an idempotency key. Repeating a request with the same key and payload returns the original result, which makes retries safe.
 
+Pass `trace` in the client options to receive one record per request after it completes: method, path, idempotency key, HTTP status, and for writes the parsed request and reply. `src/orchestrator/trace.ts` annotates each record with a plain-language headline and outcome ("Dispensed the prescription" / "Prescription r-3 · now dispensed · v3") so the ward list reads as sentences, with the raw exchange behind a "Show request" drop-down.
+
 ## Tests
 
 ```bash

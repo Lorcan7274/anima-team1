@@ -17,6 +17,7 @@ import { joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '..
 import { approveAll, buildBoard, clearHold, detectAll, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
 import type { OrchestratorContext } from '../src/orchestrator/model.ts'
 import { startUi } from '../src/ui/server.ts'
+import { annotate } from '../src/orchestrator/trace.ts'
 
 const arg = (name: string) => {
   const i = process.argv.indexOf(`--${name}`)
@@ -35,9 +36,10 @@ console.log(`world: ${worldName}`)
 const board: import('../src/orchestrator/model.ts').BoardState = { world: worldName, simNow: 0, patients: [], log: [], trace: [], phase: 'Joining the simulator world', busy: true }
 if (!flag('no-ui')) startUi(board)
 
-// Every simulator request lands in the board's trace — the compliance record.
+// Every simulator request lands in the board's trace — the compliance record —
+// annotated with the plain-language headline and outcome the UI shows.
 const { sim, world } = await joinWorld(worldName, (entry) => {
-  board.trace!.push(entry)
+  board.trace!.push(annotate(entry))
   if (board.trace!.length > 1000) board.trace!.shift()
 })
 const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }

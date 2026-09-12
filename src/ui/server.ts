@@ -14,6 +14,12 @@
  *
  * Colors follow the dataviz skill's fixed status palette (icon + label,
  * never color alone); text stays in ink tokens, the dot carries the color.
+ *
+ * Written for a clinician glancing at it: every state has a one-sentence
+ * meaning, and every simulator call reads as what the agent did and what
+ * the service replied (trace.ts wording). The raw request, reply and
+ * idempotency key sit behind a "Show request" drop-down that stays open
+ * across the poll.
  */
 import { createServer } from 'node:http'
 import type { BoardState, ChecklistItem, PatientRow } from '../orchestrator/model.ts'
@@ -75,10 +81,11 @@ export function buildReceipt(board: BoardState, patientId: string): string | und
       L.push('')
       L.push('**Actions executed (wire record):**')
       L.push('')
-      L.push('| Time | Action | Sent to | Result |')
+      L.push('| Time | What the agent did | Result | Call |')
       L.push('| --- | --- | --- | --- |')
+      const cell = (s: string) => s.replace(/\|/g, '\\|')
       for (const t of wire) {
-        L.push(`| ${new Date(t.at).toTimeString().slice(0, 8)} | \`${t.action ?? t.method}\` | \`${t.path.split('?')[0]}\` | ${t.ok ? `HTTP ${t.status}` : `FAILED ${t.status || ''}`}${t.got ? ` → ${t.got}` : ''} |`)
+        L.push(`| ${new Date(t.at).toTimeString().slice(0, 8)} | ${cell(t.headline ?? t.action ?? t.method)} | ${cell(t.outcome ?? t.got ?? (t.ok ? 'OK' : 'failed'))} | \`${t.action ?? t.method}\` ${t.ok ? `HTTP ${t.status}` : `FAILED ${t.status || ''}`} |`)
       }
     }
     if (i.resolution) L.push(`
@@ -197,6 +204,25 @@ export const PAGE = `<!doctype html>
   .call pre{background:#f6f6f4;border-radius:6px;padding:8px 10px;font-size:11px;line-height:1.5;
             white-space:pre-wrap;word-break:break-all;margin:8px 0 0;font-family:ui-monospace,monospace;color:var(--ink-2)}
   .call .meta{font-size:11px;color:var(--ink-3);margin-top:6px;word-break:break-all}
+  .call .say{display:grid;grid-template-columns:16px 58px minmax(0,1fr);gap:8px;align-items:baseline;font-size:13px}
+  .call .say .ic{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:530;
+                 color:#fff;background:var(--good);align-self:start;line-height:1}
+  .call.read .say .ic{background:#c9c8c1}
+  .call.bad .say .ic{background:var(--critical)}
+  .call .say .t{color:var(--ink-3);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .call .say .what{color:var(--ink);font-weight:420}
+  .call.read .say .what{color:var(--ink-2)}
+  .call .say .out{display:block;color:var(--ink-3);font-size:12px;margin-top:1px}
+  .call.bad .say .out{color:var(--critical)}
+  .call.read{padding:6px 14px;border-color:transparent;margin-top:2px}
+  details.reqdd{margin:4px 0 0 82px}
+  details.reqdd summary{cursor:pointer;color:var(--accent);font-size:11px;font-weight:480;list-style:none;
+                       display:flex;width:max-content;align-items:center;gap:4px;user-select:none}
+  details.reqdd summary::-webkit-details-marker{display:none}
+  details.reqdd summary::before{content:'▸';font-size:10px}
+  details.reqdd[open] summary::before{content:'▾'}
+  details.reqdd .head{margin-top:8px}
+  .stmt{font-size:12px;color:var(--ink-2);margin-top:6px;font-style:normal}
 
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
   .kpi{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 16px;
@@ -411,7 +437,7 @@ export const PAGE = `<!doctype html>
     <div class="kpis" id="kpis"></div>
     <div class="viewbar">
       <span></span>
-      <span class="legend"><span><i style="background:#a5a39c"></i>Not started</span><span><i style="background:var(--warning)"></i>In progress</span><span><i style="background:var(--critical)"></i>Stuck</span><span><i style="background:var(--good)"></i>Completed</span></span>
+      <span class="legend"><span title="Plan drafted; nothing happens until staff approve it"><i style="background:#a5a39c"></i>Not started</span><span title="Approved; the agent is acting in the owning service, then checking its records after time moves"><i style="background:var(--warning)"></i>In progress</span><span title="Needs a person: a clinical hold, an external decision, or an action that failed"><i style="background:var(--critical)"></i>Stuck</span><span title="Confirmed complete in the owning service's own records"><i style="background:var(--good)"></i>Completed</span></span>
     </div>
     <div class="content">
       <div id="board"></div>
@@ -452,9 +478,32 @@ const OWNER_LABEL = {
 const OPEN = ['proposed','approved','resolving','awaiting_verification','failed']
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
 const q = (s) => esc(String(s ?? '').replace(/"/g, ''))
+// How the service is named inside a sentence ("acting in the pharmacy").
+const SERVICE_IN_PROSE = {
+  gp: 'GP practice', hospital: 'hospital', pharmacy: 'pharmacy', community: 'community team',
+  diagnostics: 'diagnostics service', wearables: 'home monitoring service', clinician: 'clinician',
+}
+// One sentence per state: what it means and who is doing what.
+const STATE_HELP = {
+  proposed:              (svc) => 'Not started. Plan drafted; nothing happens until staff approve it.',
+  approved:              (svc) => 'In progress. Approved; the agent will act in the ' + svc + ' on its next round.',
+  resolving:             (svc) => 'In progress. The agent is acting in the ' + svc + ' right now.',
+  awaiting_verification: (svc) => 'In progress. Done in the ' + svc + '; will be checked against its own records once time has moved.',
+  verified:              (svc) => 'Completed. Confirmed in the ' + svc + "'s own records.",
+  failed:                (svc) => 'Stuck. The action could not be completed; a person needs to look at this.',
+  clinical_hold:         (svc) => 'Stuck. Only a clinician can clear this; the agent will not.',
+  blocked_human:         (svc) => 'Stuck. Needs a decision no system can make.',
+}
+const stateHelp = (i) => {
+  const h = STATE_HELP[i.state]
+  if (!h) return ''
+  if (i.state === 'verified' && i.owner === 'clinician' && i.verification) return 'Completed. ' + esc(String(i.verification.observed).replace(/^cleared/, 'Cleared')) + '.'
+  return h(SERVICE_IN_PROSE[i.owner] || i.owner)
+}
 const chip = (state) => {
   const m = META[state] || { label: state, color: 'var(--ink-3)' }
-  return '<span class="chip"><span class="dot" style="background:' + m.color + '"></span>' + m.label + '</span>'
+  const help = STATE_HELP[state] ? STATE_HELP[state]('owning service') : ''
+  return '<span class="chip" title="' + esc(help) + '"><span class="dot" style="background:' + m.color + '"></span>' + m.label + '</span>'
 }
 const GRAPH_STATE = {
   proposed:              { key: 'not-started', label: 'Not started', color: '#a5a39c' },
@@ -569,6 +618,7 @@ let openKey = null
 const when = (ms) => ms ? new Date(ms).toISOString().slice(0, 16).replace('T', ' ') : ''
 const itemDetail = (i, log) => {
   const d = []
+  d.push('<b>Status:</b> ' + stateHelp(i))
   if (i.proposedAction && (i.state === 'proposed' || i.state === 'approved')) d.push('<b>Plan:</b> ' + esc(i.proposedAction))
   if (i.approval) d.push('<b>Approved</b> by ' + esc(i.approval.by) + (i.approval.at ? ' at ' + when(i.approval.at) : ''))
   if (i.humanReason) d.push('<b>Why a human:</b> ' + esc(i.humanReason))
@@ -589,23 +639,48 @@ const prettyJson = (raw) => { try { return JSON.stringify(JSON.parse(raw), null,
 const railWire = (t) =>
   '<div class="w"><span class="t">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
   '<span class="m' + (t.method === 'POST' ? ' post' : '') + '">' + esc(t.method) + '</span>' +
-  '<span class="a">' + esc(t.action || t.path.split('?')[0].replace('/api/', '')) + '</span>' +
+  '<span class="a" title="' + esc(t.action || t.path.split('?')[0]) + '">' + esc(t.headline || t.action || t.path.split('?')[0].replace('/api/', '')) + '</span>' +
   '<span class="st' + (t.ok ? '' : ' bad') + '">' + (t.status || 'ERR') + '</span></div>'
 const renderRailTrace = (s) =>
   (document.getElementById('wiretrace').innerHTML =
     ((s.trace || []).slice(-40).reverse().map(railWire).join('')) || '<div class="empty">No calls yet.</div>')
-const wireRow = (t, withPayload) =>
-  '<div class="call"><div class="head">' +
-  '<span class="t">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
+// Drop-downs the reader opened stay open across the 1.5s re-render.
+const openIds = new Set()
+document.addEventListener('toggle', (e) => {
+  const el = e.target
+  if (el && el.id) { if (el.open) openIds.add(el.id); else openIds.delete(el.id) }
+}, true)
+const restoreOpen = () => { for (const id of openIds) { const el = document.getElementById(id); if (el) el.open = true } }
+const wireId = (t) => 'wire-' + t.at + '-' + String(t.idempotencyKey || t.path).replace(/[^a-z0-9-]/gi, '_')
+const pretty = (v) => { try { return JSON.stringify(v, null, 2) } catch { return String(v) } }
+// The technical line: method, action, HTTP status, what the sim returned.
+const wireTech = (t) =>
+  '<div class="head">' +
   '<span class="m' + (t.method === 'GET' ? ' get' : '') + '">' + esc(t.method) + '</span>' +
   '<span class="a">' + esc(t.action || t.path.split('?')[0]) + '</span>' +
   '<span class="' + (t.ok ? 'ok' : 'fail') + '">' + (t.ok ? 'HTTP ' + t.status : 'FAILED ' + (t.status || '')) + '</span>' +
-  (t.got ? '<span><span class="tag sim">sim</span> ' + esc(t.got) + '</span>' : '') + '</div>' +
-  (withPayload && t.sent ? '<div class="meta" style="margin-top:8px">agent sent:</div><pre style="margin-top:4px">' + esc(prettyJson(t.sent)) + '</pre>' : '') +
-  (withPayload && t.idempotencyKey ? '<div class="meta">idempotency key · ' + esc(t.idempotencyKey) + '</div>' : '') +
-  '</div>'
+  (t.got ? '<span><span class="tag sim">sim</span> ' + esc(t.got) + '</span>' : '') + '</div>'
+// One call, written for a clinician: what the agent did, what came back,
+// and the wire detail behind "Show request".
+const wireRow = (t, withPayload) => {
+  const write = t.method !== 'GET'
+  const icon = t.ok ? (write ? '&#10003;' : '&middot;') : '&#10005;'
+  const sent = t.request !== undefined ? pretty(t.request) : (t.sent ? prettyJson(t.sent) : '')
+  return '<div class="call' + (t.ok ? '' : ' bad') + (write ? '' : ' read') + '">' +
+    '<div class="say"><span class="ic">' + icon + '</span>' +
+    '<span class="t">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
+    '<span><span class="what">' + esc(t.headline || t.action || t.path.split('?')[0]) + '</span>' +
+    (t.outcome ? '<span class="out">' + esc(t.outcome) + '</span>' : '') + '</span></div>' +
+    (withPayload
+      ? '<details class="reqdd" id="' + wireId(t) + '"><summary>Show request</summary>' + wireTech(t) +
+        (sent ? '<div class="meta" style="margin-top:8px">agent sent:</div><pre style="margin-top:4px">' + esc(sent) + '</pre>' : '') +
+        (t.reply !== undefined ? '<div class="meta" style="margin-top:8px">service replied:</div><pre style="margin-top:4px">' + esc(pretty(t.reply)) + '</pre>' : '') +
+        (t.idempotencyKey ? '<div class="meta">idempotency key · ' + esc(t.idempotencyKey) + '</div>' : '') + '</details>'
+      : '') + '</div>'
+}
 
-function renderModal() {
+function renderModal() { renderModalBody(); restoreOpen() }
+function renderModalBody() {
   if (!lastState) return
   const s0 = lastState
   if (openKey === 'activity') {
@@ -624,7 +699,7 @@ function renderModal() {
     const writes = all.filter((t) => t.method !== 'GET')
     document.getElementById('modalTitle').textContent = 'Full agent trace'
     document.getElementById('modalSub').textContent =
-      all.length + ' simulator calls · ' + writes.length + ' writes · grouped by patient and task · every request, payload, idempotency key and response'
+      all.length + ' simulator calls · ' + writes.length + ' writes · grouped by patient and task · each line says what the agent did and what the service replied; the wire detail is behind Show request'
     const claimed = new Set()
     const forItem = (i) => all.filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id)).map((t) => { claimed.add(t); return t })
     const html = []
@@ -660,7 +735,8 @@ function renderModal() {
     if (!found) return
     const { p: p1, i } = found
     document.getElementById('modalTitle').textContent = i.title
-    document.getElementById('modalSub').innerHTML = esc(p1.name) + ' · ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' · ' + chip(i.state)
+    document.getElementById('modalSub').innerHTML = esc(p1.name) + ' · ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' · ' + chip(i.state) +
+      '<div class="stmt">' + stateHelp(i) + '</div>'
     const kv = (k, v) => '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'
     const parts = []
     parts.push('<div class="group"><h3>Detected from the record</h3>' +
