@@ -71,7 +71,7 @@ const PAGE = `<!doctype html>
   .wire .bad{color:var(--critical)}
   .wire .k{color:var(--ink-3)}
   .wire code{background:#f4f4f1;border-radius:4px;padding:0 4px}
-  .kv{display:grid;grid-template-columns:110px 1fr;gap:0 14px;padding:7px 0;border-top:1px solid var(--grid);align-items:baseline}
+  .kv{display:grid;grid-template-columns:96px 1fr;gap:0 14px;padding:8px 0;border-top:1px solid var(--grid);align-items:baseline}
   .kv:first-of-type{border-top:none}
   .kv .k{font-size:12px;color:var(--ink-3);font-weight:420}
   .kv .v{font-size:13px;color:var(--ink);line-height:1.5}
@@ -142,14 +142,17 @@ const PAGE = `<!doctype html>
   .item:hover{background:#fbfbf9}
   .tag{font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;
        padding:1px 5px;vertical-align:1px;white-space:nowrap}
-  .tag.rec{background:#f4f4f1;color:var(--ink-3)}
+  .tag.rec{background:#efeeea;color:#5c5a55}
   .tag.ai{background:var(--accent-soft);color:var(--accent)}
+  .tag.sim{background:rgba(12,163,12,0.10);color:#0a7a0a}
+  .legend{display:flex;gap:10px;align-items:center;font-size:11px;color:var(--ink-2);margin-left:auto;flex-wrap:wrap}
+  .legend span{display:inline-flex;gap:5px;align-items:center}
   .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;
         font-size:11px;font-weight:480;color:var(--ink-2);background:#f4f4f1;flex:none;min-width:92px;justify-content:center}
   .chip .dot{width:7px;height:7px;border-radius:50%;flex:none}
   .owner{font-size:11px;color:var(--ink-3);min-width:76px;font-weight:420}
   .item .title{font-weight:420}
-  .evidence{color:var(--ink-3);font-size:12px;font-style:italic}
+  .evidence{color:var(--ink);font-size:12px;font-style:normal}
   .err{color:var(--critical);font-size:12px}
   .item .right{margin-left:auto;flex:none}
   button.confirm{font:inherit;font-size:12px;font-weight:480;color:var(--accent);background:var(--surface);
@@ -216,6 +219,9 @@ const PAGE = `<!doctype html>
 <div class="modal-backdrop" id="modal" onclick="if (event.target === this) closeModal()">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-head"><div><h2 id="modalTitle"></h2><div class="sub" id="modalSub"></div></div>
+      <div class="legend"><span><span class="tag rec">record</span> from the sim record</span>
+        <span><span class="tag ai">AI</span> model-written</span>
+        <span><span class="tag sim">sim</span> service response</span></div>
       <button class="confirm" onclick="closeModal()">Close</button></div>
     <div id="modalBody"></div>
   </div>
@@ -287,7 +293,7 @@ const itemDetail = (i, log) => {
     (i.verification.atSimTime ? ' at ' + when(i.verification.atSimTime) : ''))
   if (i.error) d.push('<b class="err">Error:</b> <span class="err">' + esc(i.error) + '</span>')
   if (i.escalation) d.push('<b>Escalated to</b> ' + esc(i.escalation.responsibleTeam) + ' &mdash; ' + esc(i.escalation.nextAction) + '<br>' + esc(i.escalation.note))
-  for (const e of i.evidence || []) d.push('<span class="evidence">&ldquo;' + q(e.quote) + '&rdquo;</span> <code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code>')
+  for (const e of i.evidence || []) d.push('<span class="tag rec">record</span> &ldquo;' + q(e.quote) + '&rdquo; <code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code>')
   const logLines = (log || []).filter((l) => l.includes(i.id)).slice(-3)
   for (const l of logLines) d.push('<span class="trace">' + esc(l) + '</span>')
   const wire = ((lastState && lastState.trace) || []).filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id)).slice(-6)
@@ -309,8 +315,8 @@ const wireRow = (t, withPayload) =>
   '<span class="m' + (t.method === 'GET' ? ' get' : '') + '">' + esc(t.method) + '</span>' +
   '<span class="a">' + esc(t.action || t.path.split('?')[0]) + '</span>' +
   '<span class="' + (t.ok ? 'ok' : 'fail') + '">' + (t.ok ? 'HTTP ' + t.status : 'FAILED ' + (t.status || '')) + '</span>' +
-  (t.got ? '<span>reply: ' + esc(t.got) + '</span>' : '') + '</div>' +
-  (withPayload && t.sent ? '<pre>' + esc(prettyJson(t.sent)) + '</pre>' : '') +
+  (t.got ? '<span><span class="tag sim">sim</span> ' + esc(t.got) + '</span>' : '') + '</div>' +
+  (withPayload && t.sent ? '<div class="meta" style="margin-top:8px">agent sent:</div><pre style="margin-top:4px">' + esc(prettyJson(t.sent)) + '</pre>' : '') +
   (withPayload && t.idempotencyKey ? '<div class="meta">idempotency key · ' + esc(t.idempotencyKey) + '</div>' : '') +
   '</div>'
 
@@ -372,9 +378,9 @@ function renderModal() {
     document.getElementById('modalSub').innerHTML = esc(p1.name) + ' · ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' · ' + chip(i.state)
     const kv = (k, v) => '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'
     const parts = []
-    parts.push('<div class="group"><h3>Detected from the record <span class="tag rec">record</span></h3>' +
+    parts.push('<div class="group"><h3>Detected from the record</h3>' +
       ((i.evidence || []).map((e) =>
-        kv('<code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code>', '&ldquo;' + q(e.quote) + '&rdquo;')).join('') ||
+        kv('<span class="tag rec">record</span>', '&ldquo;' + q(e.quote) + '&rdquo; <code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code>')).join('') ||
         '<div class="empty">Rule-detected from structured state.</div>') + '</div>')
     parts.push('<div class="group"><h3>Plan &amp; approval</h3>' +
       (i.proposedAction ? kv('Plan', esc(i.proposedAction)) : '') +
@@ -384,15 +390,13 @@ function renderModal() {
     parts.push('<div class="group"><h3>Agent &harr; ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' <span>' + wire.length + ' calls, oldest first</span></h3>' +
       (wire.length ? wire.map((t) => wireRow(t, true)).join('') : '<div class="empty">No actions sent yet.</div>') + '</div>')
     if (i.generated) parts.push('<div class="group"><h3>Drafting provenance</h3>' +
-      kv('Written by', i.generated === 'model'
-        ? '<span class="tag ai">AI</span> the live model wrote this content'
-        : '<span class="err">canned fallback — model unavailable</span>') + '</div>')
+      kv(i.generated === 'model' ? '<span class="tag ai">AI</span>' : '<span class="err">⚠</span>',
+        i.generated === 'model' ? 'The live model wrote the drafted content for this task' : 'Canned fallback used — model unavailable') + '</div>')
     if (i.verification) parts.push('<div class="group"><h3>Independent verification</h3>' +
-      kv('Re-read result', (i.verification.passed ? '<span style="color:var(--good)">✓ passed</span> · ' : '<span class="err">✗ not yet</span> · ') + esc(i.verification.observed)) + '</div>')
-    if (i.escalation) parts.push('<div class="group"><h3>Escalation <span class="tag ai">AI</span></h3>' +
-      kv('Responsible team', esc(i.escalation.responsibleTeam)) +
-      kv('Next action', esc(i.escalation.nextAction)) +
-      kv('Handover note', esc(i.escalation.note)) + '</div>')
+      kv('<span class="tag sim">sim</span>', (i.verification.passed ? '<span style="color:var(--good);font-weight:480">✓ passed</span> — ' : '<span class="err">✗ not yet</span> — ') + esc(i.verification.observed)) + '</div>')
+    if (i.escalation) parts.push('<div class="group"><h3>Escalation</h3>' +
+      kv('<span class="tag ai">AI</span>', '<b>' + esc(i.escalation.responsibleTeam) + '</b> — ' + esc(i.escalation.nextAction)) +
+      kv('Note', esc(i.escalation.note)) + '</div>')
     document.getElementById('modalBody').innerHTML = parts.join('')
     return
   }
