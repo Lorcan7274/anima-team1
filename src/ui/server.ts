@@ -115,7 +115,7 @@ export const PAGE = `<!doctype html>
 <style>
 :root{--nhs-blue:#005eb8;--nhs-dark:#003087;--nhs-green:#007f3b;--nhs-red:#d5281b;--nhs-amber:#ffb81c;--ink:#212b32;--muted:#4c6272;--line:#d8dde0;--wash:#f0f4f5;--pale:#e8edff;--white:#fff;--shadow:0 5px 18px rgba(33,43,50,.10);font-family:"Frutiger W01",Arial,sans-serif}
 *{box-sizing:border-box}[hidden]{display:none!important}
-.why{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:16px 28px;border-bottom:1px solid var(--line);background:var(--pale)}.why .ic{width:14px;height:14px;border-radius:50%;margin-top:5px;background:var(--nhs-blue);flex:none}.why b{display:block;font-size:16px;color:var(--ink)}.why span{display:block;font-size:13px;color:var(--ink);margin-top:3px;line-height:1.45}.why span em{font-style:normal;font-weight:700}.why.warn{background:#fff8e6}.why.warn .ic{background:var(--nhs-amber)}.why.bad{background:#fbeae8}.why.bad .ic{background:var(--nhs-red)}.why.good{background:#e9f5ed}.why.good .ic{background:var(--nhs-green)}.why.live .ic{animation:pulse 1.2s ease-in-out infinite}@keyframes pulse{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.why.live .ic{animation:none}}
+.why{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:16px 28px;border-bottom:1px solid var(--line);background:var(--pale)}.why .ic{width:14px;height:14px;border-radius:50%;margin-top:5px;background:var(--nhs-blue);flex:none}.why b{display:block;font-size:16px;color:var(--ink)}.why span{display:block;font-size:13px;color:var(--ink);margin-top:3px;line-height:1.45}.why span em{font-style:normal;font-weight:700}.why.warn{background:#fff8e6}.why.warn .ic{background:var(--nhs-amber)}.why.bad{background:#fbeae8}.why.bad .ic{background:var(--nhs-red)}.why.good{background:#e9f5ed}.why.good .ic{background:var(--nhs-green)}.why.clickable{cursor:pointer}.why.clickable:hover,.why.clickable:focus-visible{background:#dbe3fb;outline:none}.why .cta{color:var(--nhs-blue);font-weight:700}.why.live .ic{animation:pulse 1.2s ease-in-out infinite}@keyframes pulse{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.why.live .ic{animation:none}}
 .boot{position:fixed;inset:0;z-index:100;background:var(--wash);display:grid;place-items:center;text-align:center;padding:24px}.boot.off{display:none}.boot .card{max-width:520px}.boot .homeward-logo{width:64px;height:64px;margin:0 auto 18px}.boot h2{font-size:24px;margin:0 0 6px;color:var(--nhs-dark)}.boot .phase{font-size:16px;color:var(--ink);min-height:24px;margin:0 0 22px}.spinner{width:52px;height:52px;border:5px solid var(--line);border-top-color:var(--nhs-blue);border-radius:50%;margin:0 auto 22px;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.spinner{animation:none;border-top-color:var(--line);border-left-color:var(--nhs-blue)}}
 .boot ol{list-style:none;padding:0;margin:0 auto;display:grid;gap:8px;text-align:left;width:fit-content}.boot li{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--muted)}.boot li i{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-size:12px;font-style:normal;flex:none;color:#fff}.boot li.done{color:var(--ink)}.boot li.done i{background:var(--nhs-green);border-color:var(--nhs-green)}.boot li.done i:before{content:"✓"}.boot li.now{color:var(--ink);font-weight:700}.boot li.now i{border-color:var(--nhs-blue);background:var(--nhs-blue)}.boot li.now i:before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;display:block}
 .boot .note{font-size:12px;color:var(--muted);margin:22px 0 0}body{margin:0;background:var(--wash);color:var(--ink);font-family:inherit;-webkit-font-smoothing:antialiased}button{font:inherit;cursor:pointer}.app{min-height:100vh}.nhsbar{height:8px;background:var(--nhs-blue)}
@@ -317,9 +317,8 @@ function whyStatus(p, s) {
   if (!items.length) return s.busy
     ? { tone: 'info', live: true, head: 'Agent reading the records', why: s.phase || 'Reading every service for this patient.', next: 'No action needed yet. Barriers appear here as they are found.' }
     : { tone: 'good', head: 'No barriers found', why: 'The agent read the hospital, pharmacy, diagnostics, community, home monitoring and GP records and found nothing outstanding.', next: 'The clinician makes the discharge decision.' }
-  if (working.length) return { tone: 'info', live: true, head: 'Agent working: ' + n(working.length, 'action'),
-    why: s.busy ? (s.phase || 'Acting in the owning services.') : 'Approved actions run on the next round; results are re-read after the sim clock moves.',
-    next: 'No action needed from you' + (proposed.length ? ', except ' + n(proposed.length, 'action') + ' still awaiting approval' : '') + (holds.length ? '; the clinical hold still needs the clinician' : '') + '.' }
+  if (working.length) return { tone: 'info', live: true, click: 'trace', head: 'Agent working: ' + n(working.length, 'action'),
+    sub: 'Click to view what the agent is doing right now' + (holds.length ? '. The clinical hold still needs the clinician.' : '') }
   if (failed.length) return { tone: 'bad', head: 'Agent stopped: ' + n(failed.length, 'action') + ' failed',
     why: failed.map((i) => (JOB[kindOf(i)] || i.title) + ' failed: ' + (i.error || 'no reason recorded')).join(' '),
     next: failed.some(simOutage) ? 'The simulator did not respond and nothing was changed. Re-run against the same world to retry.' : 'Open the task for the error. Re-running against the same world retries it; otherwise it needs a person.' }
@@ -345,7 +344,13 @@ const placeGroup = (label, chips, empty) => (chips.length || empty)
 function renderWhy(p, s) {
   const w = whyStatus(p, s)
   const el = document.getElementById('why')
-  el.className = 'why ' + w.tone + (w.live ? ' live' : '')
+  el.className = 'why ' + w.tone + (w.live ? ' live' : '') + (w.click ? ' clickable' : '')
+  if (w.click) {
+    el.setAttribute('role', 'button'); el.setAttribute('tabindex', '0'); el.dataset.act = w.click
+    el.innerHTML = '<i class="ic" aria-hidden="true"></i><div><b>' + esc(w.head) + '</b><span class="cta">' + esc(w.sub) + ' &rarr;</span></div>'
+    return
+  }
+  el.removeAttribute('role'); el.removeAttribute('tabindex'); delete el.dataset.act
   el.innerHTML = '<i class="ic" aria-hidden="true"></i><div><b>' + esc(w.head) + '</b><span><em>Why:</em> ' + esc(w.why) + '</span><span><em>Next:</em> ' + esc(w.next) + (w.link ? ' ' + w.link : '') + '</span></div>'
 }
 
@@ -699,6 +704,7 @@ document.addEventListener('click', async (e) => {
 })
 document.getElementById('overlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeOverlay() })
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlayKey) closeOverlay() })
+document.addEventListener('keydown', (e) => { const el = e.target && e.target.closest && e.target.closest('[role="button"][data-act]'); if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); el.click() } })
 document.getElementById('letterFields').addEventListener('input', () => { letterDirty = true; document.getElementById('saveState').textContent = 'Unsaved changes' })
 document.getElementById('find').addEventListener('input', (e) => { patFilter = e.target.value; if (lastState) render(lastState) })
 
