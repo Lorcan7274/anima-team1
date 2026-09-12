@@ -7,7 +7,10 @@
  */
 import { randomBytes } from 'node:crypto'
 import { SimClient } from '../sim/index.ts'
+import { loadDotEnv } from '../sim/config.ts'
+import type { TraceEntry } from '../sim/http.ts'
 
+loadDotEnv()
 const ORIGIN = process.env.SIM_ORIGIN?.replace(/\/+$/, '') || 'https://sim.animahealth.com'
 
 export function randomWorldName(): string {
@@ -15,8 +18,11 @@ export function randomWorldName(): string {
   return `discharge-${randomBytes(6).toString('hex')}`
 }
 
-export async function joinWorld(worldName: string): Promise<{ sim: SimClient; world: string }> {
-  const bootstrap = new SimClient({ origin: ORIGIN })
+export async function joinWorld(
+  worldName: string,
+  trace?: (entry: TraceEntry) => void,
+): Promise<{ sim: SimClient; world: string }> {
+  const bootstrap = new SimClient({ origin: ORIGIN, trace })
   const created = (await bootstrap.createTeam(worldName)) as { apiKey: string }
   return { sim: bootstrap.withKey(created.apiKey), world: worldName }
 }

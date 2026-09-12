@@ -44,12 +44,30 @@ export interface RequestOptions {
   timeoutMs?: number
 }
 
+/** One request as seen at the wire: what was sent, where, and what came back. */
+export interface TraceEntry {
+  at: number
+  method: string
+  path: string
+  /** Site-action type when the body carries one (create_task, dispense, …). */
+  action?: string
+  idempotencyKey?: string
+  status: number
+  ok: boolean
+  /** Request body, JSON-stringified and truncated — the compliance record. */
+  sent?: string
+  /** id/status of the resource the sim returned, when present. */
+  got?: string
+}
+
 export interface HttpClientOptions {
   origin: string
   token?: string
   fetch?: typeof fetch
   /** Extra headers sent on every request. */
   headers?: Record<string, string>
+  /** Called once per request with the full wire record. Never throws. */
+  trace?: (entry: TraceEntry) => void
 }
 
 export class HttpClient {
@@ -58,11 +76,18 @@ export class HttpClient {
   private readonly fetchImpl: typeof fetch
   private readonly baseHeaders: Record<string, string>
 
+  private readonly trace?: (entry: TraceEntry) => void
+
   constructor(options: HttpClientOptions) {
     this.origin = options.origin.replace(/\/+$/, '')
     this.token = options.token
     this.fetchImpl = options.fetch ?? globalThis.fetch
     this.baseHeaders = options.headers ?? {}
+    this.trace = options.trace
+  }
+
+  private record(entry: TraceEntry): void {
+    try { this.trace?.(entry) } catch { /* tracing must never break a request */ }
   }
 
   buildUrl(path: string, query?: Query): string {
@@ -92,16 +117,29 @@ export class HttpClient {
 
     const timeoutMs = options.timeoutMs ?? Number(process.env.SIM_TIMEOUT_MS || 45_000)
     const signal = options.signal ?? (timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined)
+    const tracePath = url.replace(this.origin, '')
+    const base = {
+      at: Date.now(), method, path: tracePath,
+      action: (options.body as { type?: string } | undefined)?.type,
+      idempotencyKey: options.idempotencyKey,
+      sent: body ? body.slice(0, 500) : undefined,
+    }
     let response: Response
     try {
       response = await this.fetchImpl(url, { method, headers, body, signal })
     } catch (err) {
+      this.record({ ...base, status: 0, ok: false, got: String((err as Error).message).slice(0, 160) })
       if ((err as Error).name === 'TimeoutError' || (err as Error).name === 'AbortError') {
         throw new SimApiError(0, method, url, `no response within ${timeoutMs}ms (simulator hung or unreachable)`)
       }
       throw err
     }
     const payload = await parseBody(response)
+    const res = payload as { id?: string; status?: string; version?: number } | undefined
+    this.record({
+      ...base, status: response.status, ok: response.ok,
+      got: res && typeof res === 'object' && res.id ? `${res.id} ${res.status ?? ''} v${res.version ?? ''}`.trim() : undefined,
+    })
     if (!response.ok) throw new SimApiError(response.status, method, url, payload)
     return payload as T
   }

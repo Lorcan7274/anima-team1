@@ -33,18 +33,24 @@ const verdict = async (ctx: OrchestratorContext, passed: boolean, observed: stri
   atSimTime: await at(ctx),
 })
 
-/** Blood order flips open -> available with a blood-result payload (verified). */
+/** Every blood order (U&E and FBC) must flip open -> available with results. */
 const verifyBloods: Verifier = async (ctx, item) => {
-  const r = await findInView(ctx, 'diagnostics', item.patientId, item.resolution!.resourceId)
-  const resulted = r?.status === 'available' && (r.data as any)?.kind === 'blood-result'
-  return verdict(ctx, !!resulted, r ? `order ${r.id} status=${r.status}` : 'order not found')
+  const ids = [item.resolution!.resourceId, ...(item.resolution!.alsoResourceIds ?? [])]
+  const seen: string[] = []
+  for (const id of ids) {
+    const r = await findInView(ctx, 'diagnostics', item.patientId, id)
+    const resulted = r?.status === 'available' && (r.data as any)?.kind === 'blood-result'
+    seen.push(r ? `${r.id}=${r.status}` : `${id}=missing`)
+    if (!resulted) return verdict(ctx, false, seen.join(', '))
+  }
+  return verdict(ctx, true, seen.join(', '))
 }
 
 /** Device verified only when an observation exists at/after connect time. */
 const verifyDevice: Verifier = async (ctx, item) => {
   const w = await ctx.sim.wearables(item.patientId)
   const connectedAt = item.resolution!.atSimTime
-  const reading = w.observations.find((o) => (o.data?.observedAt ?? 0) >= connectedAt)
+  const reading = w.observations.find((o) => (o.data?.observedAt ?? 0) >= connectedAt && o.data?.value != null)
   return verdict(
     ctx,
     !!reading,

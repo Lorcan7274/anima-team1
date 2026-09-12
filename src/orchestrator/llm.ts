@@ -16,6 +16,8 @@ import { loadDotEnv } from '../sim/config.ts'
 loadDotEnv()
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna'
+/** The discharge letter deserves the strongest model; override independently. */
+const WRITER_MODEL = process.env.OPENAI_MODEL_WRITER || MODEL
 const app = adk()
 
 const SYSTEM = `You are the drafting assistant of a hospital discharge-coordination
@@ -36,12 +38,13 @@ async function structured<T>(
   schema: z.ZodType<T>,
   prompt: string,
   fallback: () => T,
+  model = MODEL,
 ): Promise<{ value: T; source: LlmSource }> {
   if (!process.env.OPENAI_API_KEY) return { value: fallback(), source: 'fallback' }
   try {
     const agent = app.agent({
       name,
-      model: openai(MODEL),
+      model: openai(model),
       context: [app.context.system(SYSTEM), app.context.history()],
       tools: [],
       output: { schema },
@@ -135,6 +138,7 @@ export async function draftDischargeSummary(context: {
       followUp: context.planned.join(' '),
       gpActions: 'Review outstanding results when available; assess at the arranged follow-up.',
     }),
+    WRITER_MODEL,
   )
   return { sections: out.value, source: out.source }
 }

@@ -29,12 +29,17 @@ const ELEANOR = 'SIM-000006'
 
 const worldName = arg('world') ?? randomWorldName()
 console.log(`world: ${worldName}`)
-const { sim, world } = await joinWorld(worldName)
 
 // Serve the UI immediately with an empty board — it fills in live as setup
 // and detection progress, so the browser never sees a connection refused.
-const board: import('../src/orchestrator/model.ts').BoardState = { world, simNow: 0, patients: [], log: [], phase: 'Joining the simulator world', busy: true }
+const board: import('../src/orchestrator/model.ts').BoardState = { world: worldName, simNow: 0, patients: [], log: [], trace: [], phase: 'Joining the simulator world', busy: true }
 if (!flag('no-ui')) startUi(board)
+
+// Every simulator request lands in the board's trace — the compliance record.
+const { sim, world } = await joinWorld(worldName, (entry) => {
+  board.trace!.push(entry)
+  if (board.trace!.length > 1000) board.trace!.shift()
+})
 const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }
 // Surface fatal errors on the page instead of leaving a dead tab.
 const fatal = (err: unknown) => {

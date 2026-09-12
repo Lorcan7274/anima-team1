@@ -12,6 +12,7 @@
  *   human can move them.
  */
 import type { SimClient } from '../sim/index.ts'
+import type { TraceEntry } from '../sim/http.ts'
 
 export type ItemState =
   | 'proposed' // barrier identified, action proposed — awaiting staff approval
@@ -46,6 +47,8 @@ export interface Resolution {
   action: string
   /** Resource the resolver created or mutated — the ONLY thing verify checks. */
   resourceId: string
+  /** Secondary resources (e.g. the FBC order beside the U&E); verified too. */
+  alsoResourceIds?: string[]
   idempotencyKey: string
   atSimTime: number
 }
@@ -68,6 +71,8 @@ export interface ChecklistItem {
   /** What the agent will do if approved — shown at the approval step. */
   proposedAction?: string
   approval?: { by: string; at: number }
+  /** Resolver attempts so far; feeds the idempotency key so retries get fresh keys. */
+  attempts?: number
   resolution?: Resolution
   verification?: Verification
   /** For clinical_hold / blocked_human: why automation must stop. */
@@ -106,6 +111,8 @@ export interface BoardState {
   phase?: string
   /** True while the runner is actively calling the simulator or the model. */
   busy?: boolean
+  /** Every simulator request this run made — the compliance record. */
+  trace?: TraceEntry[]
 }
 
 export interface OrchestratorContext {

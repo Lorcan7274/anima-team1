@@ -62,6 +62,7 @@ export async function detectForPatient(
   patient: PatientRow,
   log?: (message: string) => void,
 ): Promise<ChecklistItem[]> {
+  if (patient.stage === 'discharged') return []
   const P = patient.patientId
   const items: ChecklistItem[] = []
   const slug = (s: string) => `${P.toLowerCase()}-${s}`
@@ -106,6 +107,12 @@ export async function detectForPatient(
 
   // 3. Monitoring bloods: the seeded document literally requests it.
   const monitoringDoc = hospRes.find((r) => r.kind === 'document' && /monitoring/i.test((r.data as any)?.text ?? ''))
+  const docText = String((monitoringDoc?.data as any)?.text ?? '')
+  /** Real clause from the document containing the keyword — never a hardcoded string. */
+  const clauseWith = (keyword: string): string => {
+    const m = docText.match(new RegExp(`[^.;]*${keyword}[^.;]*`, 'i'))
+    return (m?.[0] ?? docText.slice(0, 120)).trim()
+  }
   if (monitoringDoc) {
     items.push({
       id: slug('bloods'),
@@ -127,9 +134,7 @@ export async function detectForPatient(
       owner: 'wearables',
       state: 'proposed',
       proposedAction: 'Issue a home activity watch and await the first reading',
-      evidence: monitoringDoc
-        ? [ev(monitoringDoc.id, 'hospital', 'home equipment and medication handover not confirmed')]
-        : [],
+      evidence: monitoringDoc ? [ev(monitoringDoc.id, 'hospital', clauseWith('home equipment'))] : [],
     })
   }
 
@@ -159,9 +164,7 @@ export async function detectForPatient(
     owner: 'hospital',
     state: 'proposed',
       proposedAction: 'Draft all seven discharge sections and send to the GP',
-    evidence: monitoringDoc
-      ? [ev(monitoringDoc.id, 'hospital', 'medication handover not confirmed')]
-      : [],
+    evidence: monitoringDoc ? [ev(monitoringDoc.id, 'hospital', clauseWith('handover'))] : [],
   })
 
   // 7. Follow-up: GP review task honouring the patient's goals.

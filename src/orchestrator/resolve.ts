@@ -13,31 +13,33 @@ import { draftClinicalDetails, draftDischargeSummary } from './llm.ts'
 type Resolver = (ctx: OrchestratorContext, item: ChecklistItem) => Promise<Resolution>
 
 const key = (ctx: OrchestratorContext, item: ChecklistItem, step: string) =>
-  `${ctx.world}-${item.id}-${step}-1`
+  `${ctx.world}-${item.id}-${step}-${item.attempts ?? 1}`
 
 const simNow = async (ctx: OrchestratorContext) => Number((await ctx.sim.clock()).now)
 
-/** Routine U&E order citing the real trend. Verified: open -> available by +121 min. */
+/**
+ * Routine U&E + FBC orders citing the real trend. Verified: open -> available
+ * by +121 min. The FBC covers the neutropenia history (nadir 0.5, recovered).
+ */
 const resolveBloods: Resolver = async (ctx, item) => {
   const summary = await bloodSummary(ctx.sim, item.patientId)
   const { text: details, source: detailsSource } = await draftClinicalDetails(summary)
   item.generated = detailsSource
-  // TODO(team): add a second order for FBC (neutropenia history) — same shape, panelId 'fbc'.
-  const order = await ctx.sim.orderBloodTest(
-    'hospital',
-    item.patientId,
-    'Post-discharge U&E',
-    {
-      panelId: 'ue',
-      panel: 'Urea & electrolytes',
-      specimen: 'blood',
-      priority: 'routine', // routine, not urgent: yesterday's U&E was near-normal
-      collection: 'now',
-      clinicalDetails: details,
-    },
-    key(ctx, item, 'order'),
+  const shared = { specimen: 'blood', priority: 'routine' as const, collection: 'now' as const, clinicalDetails: details }
+  const ue = await ctx.sim.orderBloodTest(
+    'hospital', item.patientId, 'Post-discharge U&E',
+    { panelId: 'ue', panel: 'Urea & electrolytes', ...shared },
+    key(ctx, item, 'order-ue'),
   )
-  return { action: 'order_test', resourceId: order.id, idempotencyKey: key(ctx, item, 'order'), atSimTime: await simNow(ctx) }
+  const fbc = await ctx.sim.orderBloodTest(
+    'hospital', item.patientId, 'Post-discharge FBC',
+    { panelId: 'fbc', panel: 'Full blood count', ...shared },
+    key(ctx, item, 'order-fbc'),
+  )
+  return {
+    action: 'order_test (U&E + FBC)', resourceId: ue.id, alsoResourceIds: [fbc.id],
+    idempotencyKey: key(ctx, item, 'order-ue'), atSimTime: await simNow(ctx),
+  }
 }
 
 /** Verified: first reading arrives +10 min after connect. */
@@ -119,13 +121,14 @@ const resolveMedicines: Resolver = async (ctx, item) => {
     (r) => r.kind === 'pharmacy-product' && (r.data?.drug ?? '') === (rx.data?.drug ?? ''),
   )
   if (!product) throw new Error(`no catalogue product matches drug "${rx.data?.drug}"`)
-  if ((product.data?.stock ?? 0) < (product.data?.packSize ?? 1)) {
-    throw new Error(`insufficient stock for ${product.data?.drug} (${product.data?.stock} units)`)
+  const quantity = product.data?.packSize ?? 28
+  if ((product.data?.stock ?? 0) < quantity) {
+    throw new Error(`insufficient stock for ${product.data?.drug} (${product.data?.stock} units, need ${quantity})`)
   }
   let cur = await ctx.sim.siteAction('pharmacy', {
     type: 'link_prescription_stock', patientId: item.patientId,
     resourceId: rx.id, expectedVersion: rx.version,
-    productId: product.id, quantity: product.data?.packSize ?? 28,
+    productId: product.id, quantity,
   }, key(ctx, item, 'link'))
   cur = await ctx.sim.siteAction('pharmacy', {
     type: 'dispense', patientId: item.patientId, resourceId: cur.id, expectedVersion: cur.version,

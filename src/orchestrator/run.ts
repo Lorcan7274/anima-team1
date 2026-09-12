@@ -40,6 +40,7 @@ async function resolveItem(ctx: OrchestratorContext, item: ChecklistItem): Promi
   const resolver = resolverFor(item)
   if (!resolver) return // clinical_hold / blocked_human / unknown: nothing to do
   item.state = 'resolving'
+  item.attempts = (item.attempts ?? 0) + 1
   try {
     item.resolution = await resolver(ctx, item)
     item.state = 'awaiting_verification'

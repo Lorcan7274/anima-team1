@@ -61,6 +61,16 @@ const PAGE = `<!doctype html>
   button.primary{font:inherit;font-size:13px;font-weight:480;color:#fff;background:var(--accent);
                  border:none;border-radius:999px;padding:9px 20px;cursor:pointer;white-space:nowrap}
   button.primary:hover{filter:brightness(1.06)}
+  button.ghost{font:inherit;font-size:12px;font-weight:480;color:var(--ink-2);background:var(--surface);
+               border:1px solid var(--hairline);border-radius:999px;padding:8px 16px;cursor:pointer;white-space:nowrap}
+  button.ghost:hover{background:#f4f4f1}
+  .wire{font-family:ui-monospace,SFMono-Regular,monospace;font-size:11px;display:flex;gap:8px;align-items:baseline;
+        padding:5px 0;border-top:1px solid var(--grid);color:var(--ink-2)}
+  .wire .m{min-width:38px;font-weight:600}
+  .wire .m.post{color:var(--accent)}
+  .wire .bad{color:var(--critical)}
+  .wire .k{color:var(--ink-3)}
+  .wire code{background:#f4f4f1;border-radius:4px;padding:0 4px}
 
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
   .kpi{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 16px;
@@ -112,7 +122,12 @@ const PAGE = `<!doctype html>
   .bar>i{display:block;height:100%;background:var(--good);border-radius:3px}
 
   .items{margin-top:12px}
-  .item{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-top:1px solid var(--grid)}
+  .item{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-top:1px solid var(--grid);cursor:pointer}
+  .item:hover{background:#fbfbf9}
+  .tag{font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;
+       padding:1px 5px;vertical-align:1px;white-space:nowrap}
+  .tag.rec{background:#f4f4f1;color:var(--ink-3)}
+  .tag.ai{background:var(--accent-soft);color:var(--accent)}
   .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;
         font-size:11px;font-weight:480;color:var(--ink-2);background:#f4f4f1;flex:none;min-width:92px;justify-content:center}
   .chip .dot{width:7px;height:7px;border-radius:50%;flex:none}
@@ -162,6 +177,7 @@ const PAGE = `<!doctype html>
       <div><h1>Ward round</h1>
         <div class="subtitle">Barriers detected from the record · resolved in the owning service · verified after time moves</div></div>
       <span id="status"></span>
+      <button class="ghost" onclick="openModal('trace')">Full trace</button>
       <button class="primary" id="approveBtn" style="display:none" onclick="approve()">Approve plan</button>
     </div>
     <div class="kpis" id="kpis"></div>
@@ -249,13 +265,102 @@ const itemDetail = (i, log) => {
   if (i.error) d.push('<b class="err">Error:</b> <span class="err">' + esc(i.error) + '</span>')
   if (i.escalation) d.push('<b>Escalated to</b> ' + esc(i.escalation.responsibleTeam) + ' &mdash; ' + esc(i.escalation.nextAction) + '<br>' + esc(i.escalation.note))
   for (const e of i.evidence || []) d.push('<span class="evidence">&ldquo;' + q(e.quote) + '&rdquo;</span> <code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code>')
-  const trace = (log || []).filter((l) => l.includes(i.id)).slice(-3)
-  for (const l of trace) d.push('<span class="trace">' + esc(l) + '</span>')
+  const logLines = (log || []).filter((l) => l.includes(i.id)).slice(-3)
+  for (const l of logLines) d.push('<span class="trace">' + esc(l) + '</span>')
+  const wire = ((lastState && lastState.trace) || []).filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id)).slice(-6)
+  for (const t of wire) d.push(wireRow(t, false))
   return d.length ? '<div class="detail">' + d.map((x) => '<div>' + x + '</div>').join('') + '</div>' : ''
 }
+const wireRow = (t, withPayload) =>
+  '<div class="wire"><span class="k">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
+  '<span class="m' + (t.method === 'POST' ? ' post' : '') + '">' + esc(t.method) + '</span>' +
+  '<span>' + esc(t.path.split('?')[0]) + '</span>' +
+  (t.action ? '<code>' + esc(t.action) + '</code>' : '') +
+  '<span class="' + (t.ok ? 'k' : 'bad') + '">' + (t.status || 'ERR') + '</span>' +
+  (t.got ? '<span class="k">&rarr; ' + esc(t.got) + '</span>' : '') + '</div>' +
+  (withPayload && t.sent
+    ? '<div class="wire" style="border-top:none;padding-top:0"><span class="k">sent</span><code style="white-space:pre-wrap;word-break:break-all">' + esc(t.sent) + '</code></div>' +
+      (t.idempotencyKey ? '<div class="wire" style="border-top:none;padding-top:0"><span class="k">key</span><code>' + esc(t.idempotencyKey) + '</code></div>' : '')
+    : '')
+
 function renderModal() {
+  if (!lastState) return
+  const s0 = lastState
+  if (openKey === 'activity') {
+    document.getElementById('modalTitle').textContent = s0.busy ? 'Working…' : 'Current activity'
+    document.getElementById('modalSub').textContent = s0.phase || ''
+    const recent = (s0.trace || []).slice(-15).reverse()
+    document.getElementById('modalBody').innerHTML =
+      '<div class="group"><h3>Most recent simulator calls <span>newest first · live</span></h3>' +
+      (recent.length ? recent.map(wireRow).join('') : '<div class="empty">No calls yet.</div>') + '</div>' +
+      '<div class="group"><h3>Recent activity log</h3>' +
+      (s0.log || []).slice(-8).reverse().map((l) => '<div class="wire">' + esc(l) + '</div>').join('') + '</div>'
+    return
+  }
+  if (openKey === 'trace') {
+    const all = s0.trace || []
+    const writes = all.filter((t) => t.method !== 'GET')
+    document.getElementById('modalTitle').textContent = 'Full agent trace'
+    document.getElementById('modalSub').textContent =
+      all.length + ' simulator calls · ' + writes.length + ' writes · grouped by patient and task · every request, payload, idempotency key and response'
+    const claimed = new Set()
+    const forItem = (i) => all.filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id)).map((t) => { claimed.add(t); return t })
+    const html = []
+    for (const p0 of s0.patients) {
+      const parts = []
+      for (const i of p0.items) {
+        const rows = forItem(i)
+        if (!rows.length) continue
+        parts.push('<div class="mi"><div class="row">' + chip(i.state) + '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
+          '<span class="title">' + esc(i.title) + '</span></div>' + rows.map((t) => wireRow(t, true)).join('') + '</div>')
+      }
+      const reads = all.filter((t) => !claimed.has(t) && t.method === 'GET' &&
+        (t.path.includes(p0.patientId) || (t.sent || '').includes(p0.patientId)))
+      reads.forEach((t) => claimed.add(t))
+      if (parts.length || reads.length) {
+        html.push('<div class="group"><h3>' + esc(p0.name) + ' <span>' + esc(p0.patientId) + '</span></h3>' + parts.join('') +
+          (reads.length ? '<div class="mi"><div class="row"><span class="owner">reads</span><span class="title">' + reads.length + ' record reads for this patient</span></div>' +
+            reads.map((t) => wireRow(t, false)).join('') + '</div>' : '') + '</div>')
+      }
+    }
+    const rest = all.filter((t) => !claimed.has(t))
+    if (rest.length) {
+      html.push('<div class="group"><h3>Run &amp; world <span>world setup, clock, un-attributed calls</span></h3>' +
+        rest.map((t) => wireRow(t, t.method !== 'GET')).join('') + '</div>')
+    }
+    document.getElementById('modalBody').innerHTML = html.join('') || '<div class="empty">No calls yet.</div>'
+    return
+  }
+  if (openKey && openKey.startsWith('item:')) {
+    const id = openKey.slice(5)
+    let found = null
+    for (const p1 of s0.patients) { const i1 = p1.items.find((x) => x.id === id); if (i1) found = { p: p1, i: i1 } }
+    if (!found) return
+    const { p: p1, i } = found
+    document.getElementById('modalTitle').textContent = i.title
+    document.getElementById('modalSub').innerHTML = esc(p1.name) + ' · ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' · ' + chip(i.state)
+    const parts = []
+    parts.push('<div class="group"><h3>1 · Detected from the record <span class="tag rec">record</span></h3>' +
+      ((i.evidence || []).map((e) => '<div class="wire"><span class="evidence">&ldquo;' + q(e.quote) + '&rdquo;</span>' +
+        '<code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code></div>').join('') || '<div class="empty">Rule-detected from structured state.</div>') + '</div>')
+    parts.push('<div class="group"><h3>2 · Plan &amp; approval</h3>' +
+      (i.proposedAction ? '<div class="wire">' + esc(i.proposedAction) + '</div>' : '') +
+      (i.approval ? '<div class="wire">Approved by ' + esc(i.approval.by) + '</div>' : '<div class="empty">Not yet approved.</div>') +
+      (i.humanReason ? '<div class="wire">' + esc(i.humanReason) + '</div>' : '') + '</div>')
+    const wire = (s0.trace || []).filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id))
+    parts.push('<div class="group"><h3>3 · What the agent sent &amp; what the service replied <span>' + wire.length + ' calls</span></h3>' +
+      (wire.length ? wire.map((t) => wireRow(t, true)).join('') : '<div class="empty">No actions yet.</div>') + '</div>')
+    if (i.generated) parts.push('<div class="group"><h3>4 · Drafting provenance</h3><div class="wire">' +
+      (i.generated === 'model' ? '<span class="tag ai">AI</span> content written by the live model' : '<span class="err">⚠ canned fallback — model unavailable</span>') + '</div></div>')
+    if (i.verification) parts.push('<div class="group"><h3>' + (i.generated ? 5 : 4) + ' · Independent verification</h3><div class="wire">' +
+      (i.verification.passed ? '✓ ' : '✗ ') + esc(i.verification.observed) + '</div></div>')
+    if (i.escalation) parts.push('<div class="group"><h3>Escalation <span class="tag ai">AI</span></h3><div class="wire">' +
+      esc(i.escalation.responsibleTeam) + ' — ' + esc(i.escalation.nextAction) + '</div><div class="wire">' + esc(i.escalation.note) + '</div></div>')
+    document.getElementById('modalBody').innerHTML = parts.join('')
+    return
+  }
   const cat = CATS[openKey]
-  if (!cat || !lastState) return
+  if (!cat) return
   const s = lastState
   document.getElementById('modalTitle').textContent = cat.title
   document.getElementById('modalSub').textContent = cat.sub
@@ -286,8 +391,8 @@ function render(s) {
   document.getElementById('world').textContent = s.world
   document.getElementById('clock').textContent = s.simNow ? new Date(s.simNow).toISOString().slice(0, 16).replace('T', ' ') : '—'
   document.getElementById('status').innerHTML = s.busy
-    ? '<span class="status"><span class="spin"></span>' + esc(s.phase || 'Calling the simulator…') + '</span>'
-    : (s.phase ? '<span class="status quiet">' + esc(s.phase) + '</span>' : '')
+    ? '<span class="status" role="button" style="cursor:pointer" onclick="openModal(\\'activity\\')"><span class="spin"></span>' + esc(s.phase || 'Calling the simulator…') + '</span>'
+    : (s.phase ? '<span class="status quiet" role="button" style="cursor:pointer" onclick="openModal(\\'activity\\')">' + esc(s.phase) + '</span>' : '')
   if (!s.patients.length) {
     document.getElementById('kpis').innerHTML = ''
     document.getElementById('board').innerHTML =
@@ -328,30 +433,31 @@ function render(s) {
       '<div class="ready-pill"><span class="count">' + done + ' of ' + p.items.length + ' verified</span>' +
       '<span class="bar"><i style="width:' + pct + '%"></i></span></div></div>' +
       '<div class="items">' + p.items.map((i) =>
-        '<div class="item">' + chip(i.state) +
+        '<div class="item" data-id="' + i.id + '" onclick="itemStory(this.dataset.id)">' + chip(i.state) +
         '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
         '<span><span class="title">' + esc(i.title) + '</span>' +
-        ((i.evidence || [])[0] ? ' <span class="evidence">&ldquo;' + q(i.evidence[0].quote) + '&rdquo;</span>' : '') +
+        ((i.evidence || [])[0] ? ' <span class="evidence">&ldquo;' + q(i.evidence[0].quote) + '&rdquo;</span> <span class="tag rec">record</span>' : '') +
         (i.state === 'proposed' && i.proposedAction ? ' <span class="evidence">&rarr; ' + esc(i.proposedAction) + '</span>' : '') +
+        (i.generated === 'model' ? ' <span class="tag ai">AI-drafted</span>' : '') +
         (i.error ? ' <span class="err">' + esc(i.error) + '</span>' : '') +
         (i.generated === 'fallback' ? ' <span class="err">⚠ fallback draft — model unavailable</span>' : '') +
         (i.escalation
-          ? '<div class="escalation"><b>Escalated to ' + esc(i.escalation.responsibleTeam) + '</b> — ' +
+          ? '<div class="escalation"><span class="tag ai">AI</span> <b>Escalated to ' + esc(i.escalation.responsibleTeam) + '</b> — ' +
             esc(i.escalation.nextAction) + '<br>' + esc(i.escalation.note) + ' <i>Case remains blocked.</i>' +
             (i.escalation.source === 'fallback' ? ' <span class="err">⚠ fallback draft</span>' : '') + '</div>'
           : '') + '</span>' +
         (i.state === 'clinical_hold'
-          ? '<span class="right"><button class="confirm" onclick="clearHold(\\'' + i.id + '\\')">Confirm reviewed</button></span>'
+          ? '<span class="right"><button class="confirm" onclick="event.stopPropagation();clearHold(\\'' + i.id + '\\')">Confirm reviewed</button></span>'
           : '') +
         (i.state === 'blocked_human' && !i.escalation
-          ? '<span class="right"><button class="confirm" onclick="escalate(\\'' + i.id + '\\')">Prepare escalation</button></span>'
+          ? '<span class="right"><button class="confirm" onclick="event.stopPropagation();escalate(\\'' + i.id + '\\')">Prepare escalation</button></span>'
           : '') +
         '</div>').join('') +
       ((p.insights || []).length
         ? p.insights.map((n) =>
-            '<div class="item"><span class="chip"><span class="dot" style="background:var(--accent)"></span>Agent noted</span>' +
-            '<span class="owner">reading</span><span><span class="title">' + esc(n.title) + '</span>' +
-            (n.quote ? ' <span class="evidence">&ldquo;' + q(n.quote) + '&rdquo;</span>' : '') +
+            '<div class="item" style="cursor:default"><span class="chip"><span class="dot" style="background:var(--accent)"></span>Agent noted</span>' +
+            '<span class="owner">reading</span><span><span class="title">' + esc(n.title) + '</span> <span class="tag ai">AI</span>' +
+            (n.quote ? ' <span class="evidence">&ldquo;' + q(n.quote) + '&rdquo;</span> <span class="tag rec">record</span>' : '') +
             ' <span class="evidence">(non-blocking)</span></span></div>').join('')
         : '') + '</div></div>'
   }).join('')
@@ -366,6 +472,7 @@ function render(s) {
   document.getElementById('log').innerHTML = (s.log || []).slice(-40).map((l) => '<div>' + esc(l) + '</div>').join('')
 }
 async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
+function itemStory(id) { openModal('item:' + id) }
 async function clearHold(id) { await fetch('/clear-hold?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
 async function approve() { await fetch('/approve', { method: 'POST' }); tick() }
 async function escalate(id) {
@@ -403,8 +510,8 @@ export function startUi(board: BoardState, port = 4600): void {
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
       console.error(`port ${port} is busy (an older run?) — retrying every 2s; this run's UI will take over as soon as it frees up`)
-      setTimeout(() => server.listen(port), 2000)
+      setTimeout(() => server.listen(port, '127.0.0.1'), 2000)
     } else throw err
   })
-  server.listen(port, () => console.log(`ward list: http://localhost:${port}`))
+  server.listen(port, '127.0.0.1', () => console.log(`ward list: http://localhost:${port} (localhost only)`))
 }
