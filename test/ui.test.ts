@@ -27,3 +27,12 @@ test('the page boots blank behind a loading screen that names the setup step', (
   assert.match(PAGE, /id="bootPhase"/)
   for (const step of ['Joining the simulator world', 'Admitting patients', 'Loading patient records', 'Reading the records']) assert.match(PAGE, new RegExp(step))
 })
+
+test('the route panel always carries a why/next status line', () => {
+  assert.match(PAGE, /<div class="why" id="why"/)
+  assert.match(PAGE, /Agent idle: waiting for your approval/)
+  assert.match(PAGE, /Agent idle: needs the clinician/)
+  assert.match(PAGE, /Agent idle: waiting on an outside decision/)
+  assert.match(PAGE, /Agent working: /)
+  assert.match(PAGE, /Agent stopped: /)
+})
