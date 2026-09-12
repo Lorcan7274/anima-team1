@@ -30,12 +30,14 @@ export function connectWorld(
 export async function joinWorld(
   worldName: string,
   trace?: (entry: TraceEntry) => void,
-  attempts = 3,
+  attempts = 20,
   onRetry?: (attempt: number, err: unknown) => void,
 ): Promise<{ sim: SimClient; world: string }> {
   const bootstrap = new SimClient({ origin: ORIGIN, trace })
   // /api/keys is the simulator's slowest endpoint: a fresh world is seeded on
-  // this call. Retry on no-response and 5xx; the same team name always maps to
+  // this call, and the seeding carries on server-side after we give up.
+  // Measured: 10 s attempts every 2 s got the key on the fourth try, 43 s in.
+  // Retry quickly on no-response and 5xx; the same team name always maps to
   // the same world and key, so a retry can never create a duplicate.
   let lastErr: unknown
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -48,7 +50,7 @@ export async function joinWorld(
       const retryable = status === 0 || status === undefined || status >= 500
       if (!retryable || attempt === attempts) break
       onRetry?.(attempt, err)
-      await new Promise((r) => setTimeout(r, attempt * 5000))
+      await new Promise((r) => setTimeout(r, 2000))
     }
   }
   throw lastErr
