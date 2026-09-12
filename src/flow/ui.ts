@@ -89,15 +89,14 @@ export const FLOW_PAGE = `<!doctype html>
   .speed button:hover{background:#f4f4f1}
   .speed button.on{background:var(--accent);color:#fff}
   .speed .hint{font-size:11px;color:var(--ink-3);padding:0 6px 0 4px}
-  .rate{font-size:13px;color:var(--ink-2);font-variant-numeric:tabular-nums}
-  .rate b{font-weight:530;color:var(--ink)}
+  .warn{font-size:10px;font-weight:600;letter-spacing:.03em;color:#fff;background:var(--critical);border-radius:4px;padding:2px 6px;white-space:nowrap}
 </style></head><body>
 <div class="top">
   <div class="brand"><div class="mark">H</div><div><h1>Homeward</h1></div></div>
   <span class="speed" id="speed" title="simulated time per step — a bigger step is faster">Step
     <button data-step="15" onclick="setSpeed(15)">15 min</button><button data-step="30" onclick="setSpeed(30)">30 min</button>
     <button data-step="60" onclick="setSpeed(60)">1 h</button><button data-step="120" onclick="setSpeed(120)">2 h</button><span class="hint">faster &rarr;</span></span>
-  <span class="rate" id="rate"></span>
+  <span class="warn" id="warn" style="display:none">Warning: sim server timing out</span>
   <button class="ghost" id="pauseBtn" onclick="togglePause()">Pause</button>
   <div class="clock" id="clock">—<small id="clockSub">sim time since start</small></div>
 </div>
@@ -236,10 +235,9 @@ function render(s) {
   const W = s.params.wardSize
   document.getElementById('clock').innerHTML = (s.startedAt ? '+' + rel(s.simNow, s.startedAt) : '—') + '<small id="clockSub">sim time since start · tick ' + s.tick + ' · ' + s.params.stepMinutes + ' sim-min per tick</small>'
   document.getElementById('pauseBtn').textContent = s.paused ? 'Resume' : 'Pause'
-  // Measured, not nominal: simulated time advanced over real time elapsed across the last ticks.
-  const tk = (s.ticks || []).slice(-3) // last few steps only, so a Step change shows within a minute or two
-  const rate = tk.length >= 2 ? (tk[tk.length - 1].simNow - tk[0].simNow) / Math.max(1, tk[tk.length - 1].realAt - tk[0].realAt) : null
-  document.getElementById('rate').innerHTML = rate ? 'running at <b>&times;' + Math.round(rate) + '</b> real time' : ''
+  // Any timed-out or failed simulator call in the recent trace, or a person whose last action failed.
+  const timingOut = (s.trace || []).slice(-12).some((t) => !t.ok) || (s.patients || []).some((p) => p.error && p.flow !== 'home')
+  document.getElementById('warn').style.display = timingOut ? '' : 'none'
   const c = s.counters
   const ppl = s.patients
   layoutLane('laneAgent', ppl, (p) => p.flow, (p) => p.bed, W, s.simNow, true)
