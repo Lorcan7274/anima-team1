@@ -82,12 +82,17 @@ export async function runUntilSettled(ctx: OrchestratorContext, opts: RunOptions
       return
     }
     ctx.log(`--- round ${round}: ${open.length} open item(s) ---`)
+    ctx.board.phase = 'Executing approved actions in the simulator'
+    ctx.board.busy = true
     for (const item of open.filter((i) => i.state === 'approved')) await resolveItem(ctx, item)
     ctx.log(`advancing clock ${advance} sim-minutes`)
+    ctx.board.phase = `Advancing the sim clock ${advance} minutes`
     await ctx.sim.advanceClock(advance)
     ctx.board.simNow = Number((await ctx.sim.clock()).now)
+    ctx.board.phase = 'Re-reading every service to verify outcomes'
     for (const item of open.filter((i) => i.state === 'awaiting_verification')) await verifyItem(ctx, item)
   }
+  ctx.board.busy = false
 }
 
 /**

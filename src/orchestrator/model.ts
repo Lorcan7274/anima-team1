@@ -102,6 +102,10 @@ export interface BoardState {
   patients: PatientRow[]
   /** Human-readable audit log, newest last. */
   log: string[]
+  /** What the runner is doing right now, shown by the UI. */
+  phase?: string
+  /** True while the runner is actively calling the simulator or the model. */
+  busy?: boolean
 }
 
 export interface OrchestratorContext {

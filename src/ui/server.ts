@@ -109,6 +109,16 @@ const PAGE = `<!doctype html>
   .svc .n{margin-left:auto;font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
   .svc .n.clear{color:var(--ink-3)}
 
+  .status{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);
+          background:var(--surface);border:1px solid var(--hairline);border-radius:999px;padding:6px 14px}
+  .status.quiet{color:var(--ink-3)}
+  .spin{width:13px;height:13px;border:2px solid var(--accent-soft);border-top-color:var(--accent);
+        border-radius:50%;animation:spin .8s linear infinite;flex:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading-hero{display:flex;flex-direction:column;align-items:center;gap:16px;padding:110px 0;color:var(--ink-2)}
+  .loading-hero .spin{width:34px;height:34px;border-width:3px}
+  .loading-hero .what{font-size:14px;font-weight:480}
+  .loading-hero .why{font-size:12px;color:var(--ink-3)}
   #log{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;
        display:flex;flex-direction:column-reverse;gap:4px;max-height:300px;overflow:auto}
   #log div{border-top:1px solid var(--grid);padding-top:4px}
@@ -125,6 +135,7 @@ const PAGE = `<!doctype html>
     <div class="header">
       <div><h1>Ward round</h1>
         <div class="subtitle">Barriers detected from the record · resolved in the owning service · verified after time moves</div></div>
+      <span id="status"></span>
       <button class="primary" id="approveBtn" style="display:none" onclick="approve()">Approve plan</button>
     </div>
     <div class="kpis" id="kpis"></div>
@@ -179,7 +190,20 @@ const kpi = (label, value, hint, extra) =>
 
 function render(s) {
   document.getElementById('world').textContent = s.world
-  document.getElementById('clock').textContent = new Date(s.simNow).toISOString().slice(0, 16).replace('T', ' ')
+  document.getElementById('clock').textContent = s.simNow ? new Date(s.simNow).toISOString().slice(0, 16).replace('T', ' ') : '—'
+  document.getElementById('status').innerHTML = s.busy
+    ? '<span class="status"><span class="spin"></span>' + esc(s.phase || 'Calling the simulator…') + '</span>'
+    : (s.phase ? '<span class="status quiet">' + esc(s.phase) + '</span>' : '')
+  if (!s.patients.length) {
+    document.getElementById('kpis').innerHTML = ''
+    document.getElementById('board').innerHTML =
+      '<div class="card"><div class="loading-hero"><span class="spin"></span>' +
+      '<div class="what">' + esc(s.phase || 'Setting up the demo world…') + '</div>' +
+      '<div class="why">Live calls against the NHS-SIM simulator — the ward list appears as records load.</div></div></div>'
+    document.getElementById('services').innerHTML = ''
+    document.getElementById('log').innerHTML = (s.log || []).slice(-10).map((l) => '<div>' + esc(l) + '</div>').join('')
+    return
+  }
   const all = s.patients.flatMap((p) => p.items)
   const ready = s.patients.filter((p) => p.items.length && p.items.every((i) => i.state === 'verified')).length
   const open = all.filter((i) => OPEN.includes(i.state)).length
@@ -249,8 +273,13 @@ function render(s) {
 async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
 async function clearHold(id) { await fetch('/clear-hold?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
 async function approve() { await fetch('/approve', { method: 'POST' }); tick() }
-async function escalate(id) { await fetch('/escalate?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
-setInterval(tick, 2000); tick()
+async function escalate(id) {
+  const btn = event?.target
+  if (btn) { btn.textContent = 'Drafting…'; btn.disabled = true }
+  await fetch('/escalate?item=' + encodeURIComponent(id), { method: 'POST' })
+  tick()
+}
+setInterval(tick, 1500); tick()
 </script></body></html>`
 
 export function startUi(board: BoardState, port = 4600): void {

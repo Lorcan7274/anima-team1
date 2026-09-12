@@ -33,20 +33,24 @@ const { sim, world } = await joinWorld(worldName)
 
 // Serve the UI immediately with an empty board — it fills in live as setup
 // and detection progress, so the browser never sees a connection refused.
-const board: import('../src/orchestrator/model.ts').BoardState = { world, simNow: 0, patients: [], log: [] }
+const board: import('../src/orchestrator/model.ts').BoardState = { world, simNow: 0, patients: [], log: [], phase: 'Joining the simulator world', busy: true }
 if (!flag('no-ui')) startUi(board)
+const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }
 board.log.push('setting up the demo world…')
 
 // --- Setup: stage the narrative (day 3 of Amira's admission) ---------------
 console.log('setup: admitting Amira to AMU bed 12 (assign -> assess -> refer -> admit)')
+phase('Admitting Amira to AMU bed 12 — walking the attendance stage machine')
 await admitToWard(sim, AMIRA, 'AMU bed 12')
 board.log.push('Amira admitted to AMU bed 12')
 // Eleanor is seeded on the take list in AMU bed 1; bring her fully in.
+phase('Admitting Eleanor to AMU bed 1')
 await admitToWard(sim, ELEANOR, 'AMU bed 1')
 board.log.push('Eleanor admitted to AMU bed 1')
 // TODO(team): optionally registerAndAdmit() 2-4 directory patients for ward size.
 
 // --- Board + detection ------------------------------------------------------
+phase('Loading patient records from the simulator')
 const built = await buildBoard(sim, world, [AMIRA, ELEANOR])
 board.patients.push(...built.patients)
 board.simNow = built.simNow
@@ -75,7 +79,9 @@ const ctx: OrchestratorContext = {
     console.log(`  ${message}`)
   },
 }
+phase('Reading the records — the model is detecting barriers')
 await detectAll(ctx)
+phase('Detection complete', false)
 
 console.log('\n=== checklist ===')
 for (const p of board.patients) {
@@ -96,6 +102,7 @@ if (flag('detect-only')) {
     approveAll(board, 'Auto-approval (headless run)')
   } else {
     console.log('\nwaiting for "Approve plan" in the UI (or re-run with --approve)...')
+    phase('Waiting for staff to approve the coordination plan', false)
     while (board.patients.flatMap((p) => p.items).some((i) => i.state === 'proposed')) {
       await new Promise((r) => setTimeout(r, 2000))
     }
@@ -113,6 +120,7 @@ if (flag('detect-only')) {
       for (const h of holds()) { clearHold(board, h.id, 'Simulated clinician (--clear-holds)'); ctx.log(`hold ${h.id} cleared by simulated clinician`) }
     } else if (!flag('no-ui')) {
       console.log('\nwaiting for the clinician to press "Confirm reviewed" in the UI (or re-run with --clear-holds)...')
+      phase('Waiting for clinician sign-off on the clinical hold', false)
       while (holds().length) await new Promise((r) => setTimeout(r, 2000))
     } else {
       ctx.log(`${holds().length} clinical hold(s) remain — headless run without --clear-holds, not discharging`)
@@ -121,6 +129,7 @@ if (flag('detect-only')) {
   snapshot()
 
   // --- Finale: discharge whoever is fully green ------------------------------
+  phase('Discharging ready patients in the hospital EPR')
   for (const p of board.patients) {
     if (readyForDischarge(p)) {
       await dischargeAttendance(sim, p.patientId, 'Home with community support and monitoring')
@@ -130,6 +139,7 @@ if (flag('detect-only')) {
       ctx.log(`${p.name} NOT discharged — ${open.length} unresolved: ${open.map((i) => `${i.id}[${i.state}]`).join(', ')}`)
     }
   }
+  phase('Run complete', false)
   snapshot()
   console.log('\nProof in the sim’s own apps: hospital discharged list, GP inbox, community board, home dashboard.')
   console.log('Note: clinical holds require clicking "Confirm reviewed" in the UI, then re-run against the SAME world.')
