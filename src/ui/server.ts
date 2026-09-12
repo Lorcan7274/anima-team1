@@ -1,7 +1,8 @@
 /**
  * Homeward ward-list UI, Mercury-style: light surfaces, Inter variable font
  * with measured weights (420/480/530), cobalt actions, sidebar, KPI tiles
- * with a live sparkline, patient cards, an Accounts-style Services rail,
+ * with a live sparkline, collapsible patient cards, a patient-centred barrier
+ * graph, an Accounts-style Services rail,
  * and the activity log.
  *
  * Polls /state every 2s. Buttons: "Approve plan" (header, staff approval of
@@ -18,7 +19,7 @@ import { createServer } from 'node:http'
 import type { BoardState } from '../orchestrator/model.ts'
 import { approveAll, clearHold, prepareEscalation } from '../orchestrator/run.ts'
 
-const PAGE = `<!doctype html>
+export const PAGE = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -127,7 +128,12 @@ const PAGE = `<!doctype html>
   .rail .card{padding:16px 18px}
   .rail h2,.log-card h2{font-size:13px;font-weight:480;margin-bottom:6px}
 
-  .patient-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .patient-card{padding:0;overflow:hidden;transition:border-color .16s}
+  .patient-card.expanded{border-color:rgba(11,11,11,0.16)}
+  .patient-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%;padding:16px 18px;
+                border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
+  .patient-head:hover{background:#fbfbf9}
+  .patient-head:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
   .avatar{width:34px;height:34px;border-radius:50%;background:rgba(82,102,235,0.10);color:var(--accent);
           display:grid;place-items:center;font-weight:480;font-size:13px;flex:none}
   .patient-name{font-weight:480;font-size:15px}
@@ -136,6 +142,9 @@ const PAGE = `<!doctype html>
   .ready-pill .count{font-size:12px;color:var(--ink-2);font-weight:420;white-space:nowrap}
   .bar{width:110px;height:6px;border-radius:3px;background:var(--grid);overflow:hidden}
   .bar>i{display:block;height:100%;background:var(--good);border-radius:3px}
+  .chevron{width:20px;height:20px;display:grid;place-items:center;color:var(--ink-3);font-size:14px;line-height:1;
+           transition:transform .16s,color .16s;flex:none}
+  .patient-card.expanded .chevron{transform:rotate(180deg);color:var(--ink)}
 
   .items{margin-top:12px}
   .item{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-top:1px solid var(--grid);cursor:pointer}
@@ -160,6 +169,44 @@ const PAGE = `<!doctype html>
   button.confirm:hover{background:var(--accent-soft)}
   .escalation{margin-top:6px;padding:8px 10px;border:1px solid var(--hairline);border-left:3px solid var(--accent);
               border-radius:6px;font-size:12px;color:var(--ink-2);background:var(--accent-soft)}
+
+  .graph-wrap{border-top:1px solid var(--grid);padding:16px 18px 18px;background:var(--surface)}
+  .graph-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:8px}
+  .graph-title{font-size:12px;font-weight:480;color:var(--ink-2)}
+  .legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--ink-3);font-size:10px}
+  .legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+  .legend i{width:7px;height:7px;border-radius:50%;display:block}
+  .dependency-graph{height:430px;position:relative;isolation:isolate;overflow:hidden}
+  .dependency-lines{position:absolute;inset:0;width:100%;height:100%;z-index:0;overflow:visible}
+  .dependency-lines line{stroke-width:1;vector-effect:non-scaling-stroke;opacity:.26}
+  .graph-hub{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;width:58px;height:58px;
+             border-radius:50%;background:var(--surface);border:1px solid rgba(82,102,235,.52);display:grid;place-items:center}
+  .graph-hub .person{position:relative;width:11px;height:11px;border:1.5px solid var(--accent);border-radius:50%;margin-top:-9px}
+  .graph-hub .person:after{content:"";position:absolute;width:23px;height:12px;left:-7.5px;top:15px;border:1.5px solid var(--accent);
+                           border-bottom:0;border-radius:14px 14px 0 0}
+  .graph-node{--node-color:var(--ink-3);position:absolute;transform:translate(-50%,-50%);z-index:2;width:166px;min-height:62px;
+              border:1px solid var(--hairline);border-left:3px solid var(--node-color);border-radius:10px;background:var(--surface);
+              padding:10px 12px;cursor:pointer;text-align:left;transition:background .12s,border-color .12s}
+  .graph-node:hover,.graph-node:focus-visible{background:#fafaf8;border-color:rgba(11,11,11,.20);border-left-color:var(--node-color);outline:none}
+  .graph-node .node-top{display:flex;align-items:center;justify-content:space-between;gap:7px;margin-bottom:5px}
+  .graph-node .node-owner{font-size:9px;font-weight:600;letter-spacing:.055em;text-transform:uppercase;color:var(--ink-3)}
+  .graph-node .node-title{font-size:12px;line-height:1.3;font-weight:480}
+  .graph-node .node-action{margin-top:7px;font:inherit;font-size:10px;font-weight:530;color:var(--accent);background:transparent;
+                           border:0;padding:0;cursor:pointer}
+  .graph-node.not-started{--node-color:#a5a39c}
+  .graph-node.in-progress{--node-color:var(--warning)}
+  .graph-node.stuck{--node-color:var(--critical)}
+  .graph-node.completed{--node-color:var(--good)}
+  .graph-insights{border-top:1px solid var(--grid);margin-top:6px;padding-top:10px;font-size:11px;color:var(--ink-2)}
+  .graph-insights b{font-weight:480;color:var(--ink)}
+
+  @media(max-width:900px){
+    .app{grid-template-columns:1fr}.sidebar{display:none}.main{padding:22px 18px}.content{grid-template-columns:1fr}.rail{display:none}
+    .kpis{grid-template-columns:repeat(2,1fr)}.dependency-graph{height:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:104px}
+    .dependency-lines{display:none}.graph-hub{top:18px;transform:translateX(-50%)}
+    .graph-node{position:relative!important;left:auto!important;top:auto!important;transform:none!important;width:auto;min-height:62px}
+  }
+  @media(max-width:560px){.dependency-graph{grid-template-columns:1fr}.graph-toolbar{align-items:flex-start;flex-direction:column}.ready-pill .bar{display:none}}
 
   .svc{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--grid)}
   .svc:first-of-type{border-top:none}
@@ -227,14 +274,14 @@ const PAGE = `<!doctype html>
 </div>
 <script>
 const META = {
-  proposed:               { label: 'Proposed',   color: 'var(--serious)' },
-  approved:               { label: 'Approved',   color: 'var(--warning)' },
+  proposed:               { label: 'Not started', color: '#a5a39c' },
+  approved:               { label: 'In progress', color: 'var(--warning)' },
   resolving:              { label: 'Working',    color: 'var(--warning)' },
   awaiting_verification:  { label: 'Verifying',  color: 'var(--warning)' },
-  verified:               { label: 'Verified',   color: 'var(--good)' },
-  failed:                 { label: 'Failed',     color: 'var(--critical)' },
-  clinical_hold:          { label: 'Clinical hold', color: 'var(--accent)' },
-  blocked_human:          { label: 'Human decision', color: 'var(--ink-2)' },
+  verified:               { label: 'Completed',  color: 'var(--good)' },
+  failed:                 { label: 'Stuck',      color: 'var(--critical)' },
+  clinical_hold:          { label: 'Clinical hold', color: 'var(--critical)' },
+  blocked_human:          { label: 'Human decision', color: 'var(--critical)' },
 }
 const SERVICES = {
   gp: 'GP Records', hospital: 'Hospital EPR', pharmacy: 'Pharmacy', community: 'Community Care',
@@ -250,6 +297,73 @@ const q = (s) => esc(String(s ?? '').replace(/"/g, ''))
 const chip = (state) => {
   const m = META[state] || { label: state, color: 'var(--ink-3)' }
   return '<span class="chip"><span class="dot" style="background:' + m.color + '"></span>' + m.label + '</span>'
+}
+const GRAPH_STATE = {
+  proposed:              { key: 'not-started', label: 'Not started', color: '#a5a39c' },
+  approved:              { key: 'in-progress', label: 'In progress', color: 'var(--warning)' },
+  resolving:             { key: 'in-progress', label: 'In progress', color: 'var(--warning)' },
+  awaiting_verification: { key: 'in-progress', label: 'In progress', color: 'var(--warning)' },
+  failed:                { key: 'stuck', label: 'Stuck', color: 'var(--critical)' },
+  clinical_hold:         { key: 'stuck', label: 'Stuck', color: 'var(--critical)' },
+  blocked_human:         { key: 'stuck', label: 'Stuck', color: 'var(--critical)' },
+  verified:              { key: 'completed', label: 'Completed', color: 'var(--good)' },
+}
+const graphState = (state) => GRAPH_STATE[state] || GRAPH_STATE.proposed
+let expandedPatientId = null
+let initialExpansionSet = false
+function togglePatient(id) {
+  expandedPatientId = expandedPatientId === id ? null : id
+  if (lastState) render(lastState)
+}
+const taskTitle = (item) => {
+  const id = item.id.toLowerCase()
+  if (id.endsWith('clinical-hold')) return 'Clinical review'
+  if (id.endsWith('medicines')) return 'Discharge medicines'
+  if (id.endsWith('bloods')) return 'Blood monitoring'
+  if (id.endsWith('device')) return 'Home monitoring'
+  if (id.endsWith('visit')) return 'Home support visit'
+  if (id.endsWith('summary')) return 'Discharge summary'
+  if (id.endsWith('follow-up')) return 'GP follow-up'
+  if (id.endsWith('care-package')) return 'Care package'
+  return item.title
+}
+function graphForPatient(p) {
+  const count = Math.max(p.items.length, 1)
+  const positions = p.items.map((_, index) => {
+    const angle = (-Math.PI / 2) + (index * Math.PI * 2 / count)
+    return { x: 50 + Math.cos(angle) * 33, y: 50 + Math.sin(angle) * 36 }
+  })
+  const lines = p.items.map((i, index) => {
+    const pos = positions[index]
+    return '<line x1="50%" y1="50%" x2="' + pos.x.toFixed(2) + '%" y2="' + pos.y.toFixed(2) +
+      '%" style="stroke:' + graphState(i.state).color + '" />'
+  }).join('')
+  const nodes = p.items.map((i, index) => {
+    const pos = positions[index]
+    const state = graphState(i.state)
+    const label = taskTitle(i)
+    const action = i.state === 'clinical_hold'
+      ? '<button class="node-action" data-id="' + esc(i.id) + '" onclick="event.stopPropagation();clearHold(this.dataset.id)">Confirm reviewed</button>'
+      : (i.state === 'blocked_human' && !i.escalation
+        ? '<button class="node-action" data-id="' + esc(i.id) + '" onclick="event.stopPropagation();escalate(this.dataset.id)">Prepare escalation</button>'
+        : '')
+    return '<div class="graph-node ' + state.key + '" role="button" tabindex="0" data-id="' + esc(i.id) + '" ' +
+      'aria-label="' + q((OWNER_LABEL[i.owner] || i.owner) + ': ' + label + '. ' + state.label) + '" title="' + q(i.title) + '" ' +
+      'style="left:' + pos.x.toFixed(2) + '%;top:' + pos.y.toFixed(2) + '%" ' +
+      'onclick="itemStory(this.dataset.id)" onkeydown="if(event.keyCode===13||event.keyCode===32){event.preventDefault();itemStory(this.dataset.id)}">' +
+      '<div class="node-top"><span class="node-owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span></div>' +
+      '<div class="node-title">' + esc(label) + '</div>' + action + '</div>'
+  }).join('')
+  const insights = (p.insights || []).length
+    ? '<div class="graph-insights"><b>Agent observations:</b> ' + p.insights.map((n) => esc(n.title)).join(' · ') + '</div>'
+    : ''
+  return '<div class="graph-wrap"><div class="graph-toolbar"><span class="graph-title">Discharge dependencies</span>' +
+    '<span class="legend"><span><i style="background:#a5a39c"></i>Not started</span>' +
+    '<span><i style="background:var(--warning)"></i>In progress</span>' +
+    '<span><i style="background:var(--critical)"></i>Stuck</span>' +
+    '<span><i style="background:var(--good)"></i>Completed</span></span></div>' +
+    '<div class="dependency-graph"><svg class="dependency-lines" aria-hidden="true">' + lines + '</svg>' +
+    '<div class="graph-hub" aria-hidden="true"><span class="person"></span></div>' + nodes + '</div>' + insights + '</div>'
 }
 const history = []
 const spark = () => {
@@ -461,45 +575,26 @@ function render(s) {
   btn.style.display = proposed ? '' : 'none'
   btn.textContent = 'Approve plan (' + proposed + ')'
 
+  if (!initialExpansionSet && s.patients.length) {
+    expandedPatientId = s.patients[0].patientId
+    initialExpansionSet = true
+  }
+  if (expandedPatientId && !s.patients.some((p) => p.patientId === expandedPatientId)) expandedPatientId = null
   document.getElementById('board').innerHTML = s.patients.map((p) => {
     const done = p.items.filter((i) => i.state === 'verified').length
     const pct = p.items.length ? Math.round((100 * done) / p.items.length) : 0
     const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
-    return '<div class="card">' +
-      '<div class="patient-head"><div class="avatar">' + initials + '</div>' +
+    const expanded = expandedPatientId === p.patientId
+    return '<section class="card patient-card' + (expanded ? ' expanded' : '') + '">' +
+      '<button type="button" class="patient-head" data-patient="' + esc(p.patientId) + '" aria-expanded="' + expanded + '" ' +
+      'aria-controls="patient-graph-' + esc(p.patientId) + '" onclick="togglePatient(this.dataset.patient)">' +
+      '<div class="avatar">' + initials + '</div>' +
       '<div><div class="patient-name">' + esc(p.name) + '</div>' +
       '<div class="patient-meta">' + esc(p.patientId) + ' · ' + esc(p.stage ?? '?') +
       (p.location ? ' · ' + esc(p.location) : '') + ' · ' + esc((p.conditions || []).join(', ')) + '</div></div>' +
       '<div class="ready-pill"><span class="count">' + done + ' of ' + p.items.length + ' verified</span>' +
-      '<span class="bar"><i style="width:' + pct + '%"></i></span></div></div>' +
-      '<div class="items">' + p.items.map((i) =>
-        '<div class="item" data-id="' + i.id + '" onclick="itemStory(this.dataset.id)">' + chip(i.state) +
-        '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
-        '<span><span class="title">' + esc(i.title) + '</span>' +
-        ((i.evidence || [])[0] ? ' <span class="evidence">&ldquo;' + q(i.evidence[0].quote) + '&rdquo;</span> <span class="tag rec">record</span>' : '') +
-        (i.state === 'proposed' && i.proposedAction ? ' <span class="evidence">&rarr; ' + esc(i.proposedAction) + '</span>' : '') +
-        (i.generated === 'model' ? ' <span class="tag ai">AI-drafted</span>' : '') +
-        (i.error ? ' <span class="err">' + esc(i.error) + '</span>' : '') +
-        (i.generated === 'fallback' ? ' <span class="err">⚠ fallback draft — model unavailable</span>' : '') +
-        (i.escalation
-          ? '<div class="escalation"><span class="tag ai">AI</span> <b>Escalated to ' + esc(i.escalation.responsibleTeam) + '</b> — ' +
-            esc(i.escalation.nextAction) + '<br>' + esc(i.escalation.note) + ' <i>Case remains blocked.</i>' +
-            (i.escalation.source === 'fallback' ? ' <span class="err">⚠ fallback draft</span>' : '') + '</div>'
-          : '') + '</span>' +
-        (i.state === 'clinical_hold'
-          ? '<span class="right"><button class="confirm" onclick="event.stopPropagation();clearHold(\\'' + i.id + '\\')">Confirm reviewed</button></span>'
-          : '') +
-        (i.state === 'blocked_human' && !i.escalation
-          ? '<span class="right"><button class="confirm" onclick="event.stopPropagation();escalate(\\'' + i.id + '\\')">Prepare escalation</button></span>'
-          : '') +
-        '</div>').join('') +
-      ((p.insights || []).length
-        ? p.insights.map((n) =>
-            '<div class="item" style="cursor:default"><span class="chip"><span class="dot" style="background:var(--accent)"></span>Agent noted</span>' +
-            '<span class="owner">reading</span><span><span class="title">' + esc(n.title) + '</span> <span class="tag ai">AI</span>' +
-            (n.quote ? ' <span class="evidence">&ldquo;' + q(n.quote) + '&rdquo;</span> <span class="tag rec">record</span>' : '') +
-            ' <span class="evidence">(non-blocking)</span></span></div>').join('')
-        : '') + '</div></div>'
+      '<span class="bar"><i style="width:' + pct + '%"></i></span><span class="chevron" aria-hidden="true">⌄</span></div></button>' +
+      (expanded ? '<div id="patient-graph-' + esc(p.patientId) + '">' + graphForPatient(p) + '</div>' : '') + '</section>'
   }).join('')
 
   document.getElementById('services').innerHTML = Object.entries(SERVICES).map(([key, name]) => {
