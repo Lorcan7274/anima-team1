@@ -110,14 +110,14 @@ export const PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Homeward | Journey home</title>
+<title>Homeward</title>
 <style>
 :root{--nhs-blue:#005eb8;--nhs-dark:#003087;--nhs-green:#007f3b;--nhs-red:#d5281b;--nhs-amber:#ffb81c;--ink:#212b32;--muted:#4c6272;--line:#d8dde0;--wash:#f0f4f5;--pale:#e8edff;--white:#fff;--shadow:0 5px 18px rgba(33,43,50,.10);font-family:"Frutiger W01",Arial,sans-serif}
 *{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:var(--wash);color:var(--ink);font-family:inherit;-webkit-font-smoothing:antialiased}button{font:inherit;cursor:pointer}.app{min-height:100vh}.nhsbar{height:8px;background:var(--nhs-blue)}
 .top{min-height:86px;padding:12px 42px;display:flex;align-items:center;gap:18px;background:var(--white);border-bottom:1px solid var(--line);flex-wrap:wrap}.wordmark{display:flex;align-items:center;gap:14px}.homeward-logo{width:54px;height:54px;display:block}.homeward-logo svg{width:100%;height:100%;display:block}.wordmark h1{font-size:24px;margin:0;color:var(--nhs-dark)}.wordmark p{font-size:13px;color:var(--muted);margin:2px 0 0}.topspace{flex:1}
-.switch{display:flex;gap:8px;flex-wrap:wrap}.switch button{border:2px solid var(--line);background:#fff;padding:8px 12px;font-size:13px;display:flex;align-items:center;gap:8px}.switch button.on{border-color:var(--nhs-blue);background:var(--pale)}.switch i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.shell{display:grid;grid-template-columns:270px minmax(0,1fr);align-items:start}.side{background:var(--white);border-right:1px solid var(--line);min-height:calc(100vh - 94px);padding:22px 16px;position:sticky;top:0}.side .find{width:100%;border:2px solid #768692;padding:10px 12px;font:14px "Frutiger W01",Arial,sans-serif;color:var(--ink)}.side .find:focus{outline:4px solid #ffdd00;outline-offset:0;border-color:#212b32}.side .label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}.plist{display:flex;flex-direction:column;gap:6px}.prow{display:grid;grid-template-columns:40px 1fr;gap:10px;align-items:center;width:100%;text-align:left;border:0;border-left:5px solid transparent;padding:10px 10px 10px 8px;background:var(--wash);color:inherit}.prow .av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;background:#fff;color:var(--nhs-dark)}.prow b{display:block;font-size:14px}.prow small{display:block;font-size:11px;color:var(--muted);margin-top:2px}.prow em{display:block;font-size:11px;font-style:normal;font-weight:700;margin-top:3px}.prow.good{background:#e9f5ed}.prow.good em{color:var(--nhs-green)}.prow.bad{background:#fbeae8}.prow.bad em{color:var(--nhs-red)}.prow.warn{background:#fff4cf}.prow.warn em{color:#5c4200}.prow.on.good{border-left-color:var(--nhs-green)}.prow.on.bad{border-left-color:var(--nhs-red)}.prow.on.warn{border-left-color:var(--nhs-amber)}.prow.on{box-shadow:var(--shadow)}.prow:not(.on){opacity:.8}.side .none{font-size:12px;color:var(--muted);padding:10px 4px}
 .patient{display:flex;align-items:center;gap:12px}.patient-avatar{width:48px;height:48px;border-radius:50%;background:#d9e5f5;display:grid;place-items:center;color:var(--nhs-dark);font-weight:700}.patient strong,.patient>span:not(.patient-avatar),.patient>span>span{display:block}.patient strong{font-size:15px}.patient span{font-size:12px;color:var(--muted);margin-top:2px}.allergy{background:#fbeae8;color:var(--nhs-red);font-weight:700;font-size:12px;padding:8px 10px}.allergy.none{background:var(--wash);color:var(--muted)}
-.page{max-width:1500px;margin:0 auto;padding:34px 42px 70px}.intro{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin-bottom:24px}.intro small{display:block;color:var(--nhs-blue);font-size:13px;font-weight:700;margin-bottom:8px}.titleline{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.intro h2{font-size:38px;line-height:1.12;letter-spacing:-.5px;margin:0;max-width:760px}.top-readiness{display:inline-flex;align-items:center;gap:9px;background:#fbeae8;color:var(--nhs-red);font-size:14px;font-weight:700;padding:11px 14px;border-left:5px solid var(--nhs-red)}.top-readiness:before{content:"!";width:25px;height:25px;border-radius:50%;background:var(--nhs-red);color:#fff;display:grid;place-items:center;font-size:16px}.top-readiness.ready{background:#e9f5ed;color:var(--nhs-green);border-left-color:var(--nhs-green)}.top-readiness.ready:before{content:"✓";background:var(--nhs-green)}.top-readiness.reviewing{background:var(--pale);color:var(--nhs-blue);border-left-color:var(--nhs-blue)}.top-readiness.reviewing:before{content:"…";background:var(--nhs-blue)}.intro p{font-size:16px;color:var(--muted);line-height:1.5;max-width:670px;margin:12px 0 0}.doctor{display:flex;align-items:center;gap:12px;min-width:235px;padding-bottom:4px}.doctor-photo{width:50px;height:50px;border-radius:50%;background:#fff;border:2px solid #768692;color:#425563;display:grid;place-items:center}.doctor-photo svg{width:33px;height:33px}.doctor strong,.doctor span{display:block}.doctor strong{font-size:14px}.doctor span{font-size:12px;color:var(--muted);margin-top:3px}
+.page{max-width:1500px;margin:0 auto;padding:34px 42px 70px}.intro{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin-bottom:24px}.intro small{display:block;color:var(--nhs-blue);font-size:13px;font-weight:700;margin-bottom:8px}.titleline{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.intro h2{font-size:38px;line-height:1.12;letter-spacing:-.5px;margin:0;max-width:760px}.top-readiness{display:inline-flex;align-items:center;gap:9px;background:#fbeae8;color:var(--nhs-red);font-size:14px;font-weight:700;padding:11px 14px;border-left:5px solid var(--nhs-red)}.top-readiness:before{content:"";width:14px;height:14px;border-radius:50%;background:var(--nhs-red);display:block}.top-readiness.ready{background:#e9f5ed;color:var(--nhs-green);border-left-color:var(--nhs-green)}.top-readiness.ready:before{background:var(--nhs-green)}.top-readiness.reviewing{background:#fff4cf;color:#5c4200;border-left-color:var(--nhs-amber)}.top-readiness.reviewing:before{background:var(--nhs-amber)}.intro p{font-size:16px;color:var(--muted);line-height:1.5;max-width:670px;margin:12px 0 0}.doctor{display:flex;align-items:center;gap:12px;min-width:235px;padding-bottom:4px}.doctor-photo{width:50px;height:50px;border-radius:50%;background:#fff;border:2px solid #768692;color:#425563;display:grid;place-items:center}.doctor-photo svg{width:33px;height:33px}.doctor strong,.doctor span{display:block}.doctor strong{font-size:14px}.doctor span{font-size:12px;color:var(--muted);margin-top:3px}
 .journey{background:var(--white);box-shadow:var(--shadow);border-top:6px solid var(--nhs-blue);overflow:hidden}.journey-head{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 28px;border-bottom:1px solid var(--line)}.journey-head h3{font-size:20px;margin:0}.journey-head p{font-size:13px;color:var(--muted);margin:5px 0 0}.status{font-size:13px;font-weight:700;color:var(--nhs-red);padding:8px 11px;background:#fbeae8}.status.reviewing{background:#e8edff;color:var(--nhs-blue)}.status.ready{background:#e9f5ed;color:var(--nhs-green)}
 .route{display:grid;grid-template-columns:230px 1fr 290px;align-items:stretch;min-height:355px}.place{padding:28px 24px;display:flex;flex-direction:column;justify-content:center}.hospital{background:#f7f9fa;border-right:1px solid var(--line)}.home{background:#e9f5ed;border-left:1px solid #b7d7c2}.place-icon{width:64px;height:64px;display:grid;place-items:center;background:var(--white);color:var(--nhs-blue);font-size:34px;font-weight:700;border:1px solid var(--line);margin-bottom:18px}.home .place-icon{color:var(--nhs-green)}.place small{font-size:12px;font-weight:700;color:var(--muted)}.place h4{font-size:22px;margin:5px 0}.place p{font-size:13px;line-height:1.45;color:var(--muted);margin:0}.place .flags{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px}.place .flags span{font-size:11px;padding:3px 7px;background:#fff;border:1px solid var(--line)}.place .flags span.bad{color:var(--nhs-red);border-color:#f0c3bd;background:#fbeae8}.context{margin-top:18px;padding-top:16px;border-top:1px solid #b7d7c2}.context b{font-size:12px;display:block;margin-bottom:8px}.context span{display:block;font-size:12px;line-height:1.55}.context em{font-size:11px;color:var(--muted);font-style:normal;display:block;margin-top:10px}
 .crossing{padding:30px 34px;position:relative;display:flex;flex-direction:column;justify-content:center}.track{height:4px;background:#d8dde0;position:absolute;left:calc(10% - 6px);right:calc(10% - 6px);top:24px;z-index:0}.trackfill{height:100%;width:0;background:var(--nhs-amber);transition:width .5s ease}.journey.complete .trackfill{background:var(--nhs-green)}.gates{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:15px;margin-top:20px}.gate{text-align:center}.gate-mark{width:52px;height:52px;margin:0 auto 12px;background:#fff;border:3px solid #aeb7bd;border-radius:50%;display:grid;place-items:center;font-size:23px;line-height:1;font-weight:700;color:#768692;position:relative;z-index:1;transition:.25s}.gate b{display:block;font-size:13px}.gate span{font-size:11px;color:var(--muted);display:block;margin-top:4px}.gate-state{display:inline-block;margin-top:8px;font-size:10px;font-style:normal;font-weight:700;color:#4c6272}
@@ -138,7 +138,7 @@ export const PAGE = `<!doctype html>
 .call{border:1px solid var(--line);padding:10px 14px;margin-top:8px}.call .say{display:grid;grid-template-columns:18px 62px minmax(0,1fr);gap:8px;align-items:baseline;font-size:13px}.call .ic{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;background:var(--nhs-green);align-self:start;line-height:1}.call.read .ic{background:#aeb7bd}.call.bad .ic{background:var(--nhs-red)}.call .t{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.call .what{font-weight:700}.call.read .what{font-weight:400;color:var(--muted)}.call .out{display:block;color:var(--muted);font-size:12px;margin-top:1px}.call.bad .out{color:var(--nhs-red)}.call.read{padding:5px 14px;border-color:transparent;margin-top:2px}
 details.reqdd{margin:4px 0 0 88px}details.reqdd summary{cursor:pointer;color:var(--nhs-blue);font-size:12px;font-weight:700;list-style:none;display:flex;width:max-content;gap:4px;user-select:none}details.reqdd summary::-webkit-details-marker{display:none}details.reqdd summary::before{content:'▸';font-size:10px}details.reqdd[open] summary::before{content:'▾'}details.reqdd .head{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;margin-top:8px}details.reqdd .head .m{font-weight:700;color:var(--nhs-blue)}details.reqdd .meta{font-size:11px;color:var(--muted);margin-top:8px;word-break:break-all}details.reqdd pre{background:var(--wash);padding:8px 10px;font-size:11px;line-height:1.5;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:4px 0 0}
 @media(max-width:1050px){.intro{flex-direction:column;align-items:flex-start}.route{grid-template-columns:180px 1fr 230px}.crossing{padding-left:20px;padding-right:20px}.gates{gap:7px}.below{grid-template-columns:1fr}.pack-grid{grid-template-columns:300px 1fr}}
-@media(max-width:900px){.route{grid-template-columns:1fr}.hospital,.home{border-left:0;border-right:0}.crossing{padding:34px 24px}.pack-grid{grid-template-columns:1fr}.meds{border-right:0;border-bottom:1px solid var(--line)}}
+@media(max-width:900px){.shell{grid-template-columns:1fr}.side{position:static;min-height:0;border-right:0;border-bottom:1px solid var(--line)}.plist{flex-direction:row;flex-wrap:wrap}.prow{width:auto;min-width:220px}.route{grid-template-columns:1fr}.hospital,.home{border-left:0;border-right:0}.crossing{padding:34px 24px}.pack-grid{grid-template-columns:1fr}.meds{border-right:0;border-bottom:1px solid var(--line)}}
 @media(max-width:760px){.top{padding:18px}.page{padding:24px 16px}.intro h2{font-size:31px}.track{display:none}.gates{grid-template-columns:1fr}.gate{display:grid;grid-template-columns:50px 1fr;align-items:center;text-align:left;column-gap:12px}.gate-mark{grid-row:1/3;margin:0}.actionbar{align-items:stretch;flex-direction:column}.tasks{grid-template-columns:1fr}.results,.letter-fields{grid-template-columns:1fr}.letter-field.full{grid-column:auto}.doctor{min-width:0}}
 </style>
 </head>
@@ -148,10 +148,11 @@ details.reqdd{margin:4px 0 0 88px}details.reqdd summary{cursor:pointer;color:var
   <header class="top">
     <div class="wordmark"><span class="homeward-logo" aria-label="Homeward logo"><svg viewBox="0 0 64 64" role="img" aria-hidden="true"><path d="M8 29 32 8l24 21v27H8Z" fill="#005eb8"/><path d="M20 24v24h8V37h8v11h8V24h-8v7h-8v-7Z" fill="#fff"/><path d="M40 45h12l-5-5 4-4 12 12-12 12-4-4 5-5H40Z" fill="#00a499"/></svg></span><span><h1>Homeward</h1><p>Clinical discharge coordination</p></span></div>
     <span class="topspace"></span>
-    <div class="switch" id="switch"></div>
     <div class="patient" id="patientHead"></div>
     <span class="allergy none" id="allergy">Allergies: not loaded</span>
   </header>
+  <div class="shell">
+  <aside class="side"><input class="find" id="find" type="search" placeholder="Find a patient or SIM number" autocomplete="off"><div class="label" id="plistLabel">Patients</div><div class="plist" id="plist"></div></aside>
   <main class="page">
     <section class="intro" id="intro"></section>
     <section class="journey" id="journey" aria-live="polite">
@@ -161,7 +162,7 @@ details.reqdd{margin:4px 0 0 88px}details.reqdd summary{cursor:pointer;color:var
         <section class="place hospital" id="placeHospital"></section>
         <section class="crossing">
           <div class="gates" id="gates"></div>
-          <div class="route-legend" id="routeLegend"><span><i class="lg-red">!</i>Blocks discharge</span><span><i class="lg-amber">!</i>Action required</span><span><i class="lg-green">✓</i>Verified</span></div>
+          <div class="route-legend" id="routeLegend"><span><i class="lg-red"></i>Blocks discharge</span><span><i class="lg-amber"></i>Action required or in progress</span><span><i class="lg-green">✓</i>Verified</span></div>
           <div class="route-note" id="routeNote"></div>
         </section>
         <section class="place home" id="placeHome"></section>
@@ -187,6 +188,7 @@ details.reqdd{margin:4px 0 0 88px}details.reqdd summary{cursor:pointer;color:var
     </section>
     <p class="foot" id="foot"></p>
   </main>
+  </div>
 </div>
 <div class="overlay" id="overlay"><div class="panel" role="dialog" aria-modal="true"><header><div><h3 id="ovTitle"></h3><p id="ovSub"></p></div><button class="secondary" data-act="close">Close</button></header><div class="ovbody" id="ovBody"></div></div></div>
 <script>
@@ -230,13 +232,13 @@ const shortState = (i) => {
 }
 function gateState(items, n) {
   if (!items.length) return { cls: '', mark: '–', label: 'No barrier found' }
-  if (items.some((i) => i.state === 'failed')) return { cls: 'blocked', mark: '!', label: items.some(simOutage) ? 'Simulator did not respond' : 'Action failed' }
-  if (items.some((i) => i.state === 'clinical_hold')) return { cls: 'blocked', mark: '!', label: 'Clinician confirmation needed' }
+  if (items.some((i) => i.state === 'failed')) return { cls: 'blocked', mark: String(n), label: items.some(simOutage) ? 'Simulator did not respond' : 'Action failed' }
+  if (items.some((i) => i.state === 'clinical_hold')) return { cls: 'blocked', mark: String(n), label: 'Clinician confirmation needed' }
   const bh = items.find((i) => i.state === 'blocked_human')
-  if (bh) return { cls: 'blocked', mark: '!', label: bh.escalation ? 'Escalated, decision pending' : 'External decision needed' }
+  if (bh) return { cls: 'blocked', mark: String(n), label: bh.escalation ? 'Escalated, decision pending' : 'External decision needed' }
   if (items.every((i) => i.state === 'verified')) return { cls: 'cleared', mark: '✓', label: 'Verified' }
   if (items.some((i) => WORKING.includes(i.state))) return { cls: 'scanning', mark: '…', label: items.some((i) => i.state === 'awaiting_verification') ? 'Verifying' : 'In progress' }
-  if (items.some((i) => i.state === 'proposed')) return { cls: 'actionable', mark: '!', label: 'Action required' }
+  if (items.some((i) => i.state === 'proposed')) return { cls: 'actionable', mark: String(n), label: 'Action required' }
   return { cls: '', mark: String(n), label: 'Not checked' }
 }
 const first = (p) => (p.name || '').split(' ')[0]
@@ -267,7 +269,7 @@ function readiness(p, s) {
   return R({ badge: 'Not ready: ' + human.length + ' confirmation' + (human.length === 1 ? '' : 's') + ' outstanding', badgeCls: '', status: 'Not ready: ' + human.length + ' confirmation' + (human.length === 1 ? '' : 's') + ' remain' + (human.length === 1 ? 's' : ''), statusCls: '', note: ['Operational route verified', 'Homeward has re-read every receiving service. ' + human.map((i) => i.title.split(' — ')[0]).join('; ') + ' remain' + (human.length === 1 ? 's' : '') + ' a named human decision.'], action: 'Awaiting confirmations', disabled: true, text: 'Operational work is verified. Record the named confirmations below.' })
 }
 
-let lastState = null, lastText = '', selectedPatient = null, overlayKey = null
+let lastState = null, lastText = '', selectedPatient = null, overlayKey = null, patFilter = ''
 let letterDirty = false, lastLetterJson = ''
 const openIds = new Set()
 document.addEventListener('toggle', (e) => { const el = e.target; if (el && el.id) { if (el.open) openIds.add(el.id); else openIds.delete(el.id) } }, true)
@@ -303,11 +305,15 @@ function render(s) {
   lastState = s
   if (!selectedPatient || !s.patients.some((p) => p.patientId === selectedPatient)) selectedPatient = (s.patients[0] || {}).patientId
   const p = patient(s)
-  document.getElementById('switch').innerHTML = s.patients.map((x) => {
+  const flt = patFilter.trim().toLowerCase()
+  const shown = s.patients.filter((x) => !flt || x.name.toLowerCase().includes(flt) || x.patientId.toLowerCase().includes(flt))
+  document.getElementById('plistLabel').textContent = flt ? shown.length + ' of ' + s.patients.length + ' patients' : 'Patients · ' + s.patients.length
+  document.getElementById('plist').innerHTML = shown.map((x) => {
     const r = readiness(x, s)
-    const col = r.complete ? 'var(--nhs-green)' : x.items.some((i) => HUMAN.includes(i.state) || i.state === 'failed') ? 'var(--nhs-red)' : 'var(--nhs-amber)'
-    return '<button data-act="select" data-p="' + esc(x.patientId) + '" class="' + (x === p ? 'on' : '') + '"><i style="background:' + col + '"></i>' + esc(x.name) + '</button>'
-  }).join('')
+    const tone = r.complete ? 'good' : x.items.some((i) => HUMAN.includes(i.state) || i.state === 'failed') ? 'bad' : 'warn'
+    const word = r.complete ? (x.stage === 'discharged' ? 'Discharged' : 'Ready') : tone === 'bad' ? 'Needs a person' : x.items.some((i) => i.state === 'proposed') ? 'Awaiting approval' : x.items.length ? 'In progress' : 'Checking'
+    return '<button class="prow ' + tone + (x === p ? ' on' : '') + '" data-act="select" data-p="' + esc(x.patientId) + '"><span class="av">' + esc(initials(x)) + '</span><span><b>' + esc(x.name) + '</b><small>' + esc(x.patientId) + (x.location ? ' · ' + esc(x.location) : '') + '</small><em>' + word + '</em></span></button>'
+  }).join('') || '<div class="none">No patient matches.</div>'
   document.getElementById('foot').textContent = 'World ' + s.world + ' · sim clock ' + (s.simNow ? new Date(s.simNow).toISOString().slice(0, 16).replace('T', ' ') : '—') + (s.phase ? ' · ' + s.phase : '') + ' · synthetic simulator data (NHS-SIM); every action was executed against the simulator and independently re-read.'
   if (!p) {
     document.getElementById('patientHead').innerHTML = ''
@@ -508,6 +514,7 @@ document.addEventListener('click', async (e) => {
 document.getElementById('overlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeOverlay() })
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlayKey) closeOverlay() })
 document.getElementById('letterFields').addEventListener('input', () => { letterDirty = true; document.getElementById('saveState').textContent = 'Unsaved changes' })
+document.getElementById('find').addEventListener('input', (e) => { patFilter = e.target.value; if (lastState) render(lastState) })
 
 async function tick(force) {
   try {
