@@ -19,6 +19,15 @@ export class SimApiError extends Error {
   }
 }
 
+/** The human-readable reason in an error body, falling back to a trimmed dump. */
+function messageOf(body: unknown): string {
+  if (body && typeof body === 'object') {
+    const o = body as Record<string, unknown>
+    for (const k of ['error', 'message', 'detail']) if (typeof o[k] === 'string') return o[k] as string
+  }
+  return summarise(body)
+}
+
 function summarise(body: unknown): string {
   if (typeof body === 'string') return body.slice(0, 300)
   try {
@@ -58,6 +67,16 @@ export interface TraceEntry {
   sent?: string
   /** id/status of the resource the sim returned, when present. */
   got?: string
+  /** Parsed request body — writes only, so the trace stays small. */
+  request?: unknown
+  /** Parsed response body — writes only. */
+  reply?: unknown
+  /** Human-readable reason when the request failed. */
+  error?: string
+  /** Plain-language intent, filled by orchestrator/trace.ts (e.g. "Dispensed the prescription"). */
+  headline?: string
+  /** Plain-language result, e.g. "Prescription r-3 · now dispensed · v3". */
+  outcome?: string
 }
 
 export interface HttpClientOptions {
@@ -128,7 +147,8 @@ export class HttpClient {
     try {
       response = await this.fetchImpl(url, { method, headers, body, signal })
     } catch (err) {
-      this.record({ ...base, status: 0, ok: false, got: String((err as Error).message).slice(0, 160) })
+      const reason = String((err as Error).message).slice(0, 160)
+      this.record({ ...base, status: 0, ok: false, got: reason, error: reason, request: method === 'GET' ? undefined : options.body })
       if ((err as Error).name === 'TimeoutError' || (err as Error).name === 'AbortError') {
         throw new SimApiError(0, method, url, `no response within ${timeoutMs}ms (simulator hung or unreachable)`)
       }
@@ -138,7 +158,14 @@ export class HttpClient {
     const res = payload as { id?: string; status?: string; version?: number } | undefined
     this.record({
       ...base, status: response.status, ok: response.ok,
-      got: res && typeof res === 'object' && res.id ? `${res.id} ${res.status ?? ''} v${res.version ?? ''}`.trim() : undefined,
+      // Only a resource reply (id + status/version) is worth summarising; a
+      // site view also carries an `id` (the world) and would read as noise.
+      got: res && typeof res === 'object' && res.id && (res.status != null || res.version != null)
+        ? `${res.id}${res.status != null ? ' ' + res.status : ''}${res.version != null ? ' v' + res.version : ''}`
+        : undefined,
+      request: method === 'GET' ? undefined : options.body,
+      reply: method === 'GET' ? undefined : payload,
+      error: response.ok ? undefined : messageOf(payload),
     })
     if (!response.ok) throw new SimApiError(response.status, method, url, payload)
     return payload as T

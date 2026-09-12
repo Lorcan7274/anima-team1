@@ -7,7 +7,7 @@
  * something verification has settled.
  */
 import type { SimClient } from '../sim/index.ts'
-import type { ChecklistItem, Evidence, PatientRow } from './model.ts'
+import type { ChecklistItem, Evidence, PatientFact, PatientProfile, PatientRow } from './model.ts'
 import { proposeBarriersFromText } from './llm.ts'
 
 interface SimResource {
@@ -66,7 +66,8 @@ export async function detectForPatient(
   const P = patient.patientId
   const items: ChecklistItem[] = []
   const slug = (s: string) => `${P.toLowerCase()}-${s}`
-  const ev = (resourceId: string, site: Evidence['site'], quote: string): Evidence => ({ resourceId, site, quote })
+  const ev = (resourceId: string, site: Evidence['site'], quote: string, raisedAt?: number): Evidence =>
+    raisedAt ? { resourceId, site, quote, raisedAt } : { resourceId, site, quote }
 
   const [hosp, community, wearables] = await Promise.all([
     sim.siteView('hospital', { patient: P, limit: 100 }),
@@ -87,7 +88,7 @@ export async function detectForPatient(
       owner: 'clinician',
       state: 'clinical_hold',
       humanReason: `Open urgent thread: "${respThread.title}". Automation must not clear this.`,
-      evidence: [ev(respThread.id, 'hospital', respThread.title ?? '')],
+      evidence: [ev(respThread.id, 'hospital', respThread.title ?? '', respThread.createdAt)],
     })
   }
 
@@ -101,7 +102,7 @@ export async function detectForPatient(
       owner: 'pharmacy',
       state: 'proposed',
       proposedAction: 'Link pharmacy stock, dispense and record collection',
-      evidence: [ev(rx.id, 'hospital', `${rx.title}: status ${rx.status}, not dispensed or collected`)],
+      evidence: [ev(rx.id, 'hospital', `${rx.title}: status ${rx.status}, not dispensed or collected`, rx.createdAt)],
     })
   }
 
@@ -121,7 +122,7 @@ export async function detectForPatient(
       owner: 'diagnostics',
       state: 'proposed',
       proposedAction: 'Order routine U&E + FBC citing the result history',
-      evidence: [ev(monitoringDoc.id, 'hospital', ((monitoringDoc.data as any)?.text ?? '').slice(0, 160))],
+      evidence: [ev(monitoringDoc.id, 'hospital', ((monitoringDoc.data as any)?.text ?? '').slice(0, 160), monitoringDoc.createdAt)],
     })
   }
 
@@ -200,8 +201,8 @@ export async function detectForPatient(
       state: 'blocked_human',
       humanReason: 'Funding approval is an external decision; no API action can clear it.',
       evidence: [
-        ev(carePackage.id, 'community', `${carePackage.title}: fundingDecision pending`),
-        ...(carePlan ? [ev(carePlan.id, 'community', carePlan.title ?? 'home support not arranged')] : []),
+        ev(carePackage.id, 'community', `${carePackage.title}: fundingDecision pending`, carePackage.createdAt),
+        ...(carePlan ? [ev(carePlan.id, 'community', carePlan.title ?? 'home support not arranged', carePlan.createdAt)] : []),
         ...(trend
           ? [ev(trend.id, 'community', `${trend.title}: ${(trend.data as any)?.value} vs baseline ${(trend.data as any)?.baseline} steps/day`)]
           : []),
@@ -251,13 +252,13 @@ export async function detectForPatient(
   return items
 }
 
-/** Load a patient's directory row (name, conditions, needs, goals) + attendance. */
+/** Load a patient's directory row (name, conditions, needs, goals) + attendance + record profile. */
 export async function loadPatientRow(sim: SimClient, patientId: string): Promise<PatientRow> {
   const found = await sim.searchPatients('hospital', patientId)
   const p = (found.items ?? [])[0] ?? {}
   const hosp = await sim.siteView('hospital', { patient: patientId, limit: 50 })
   const att = res(hosp).find((r) => r.kind === 'hospital-attendance')
-  return {
+  const row: PatientRow = {
     patientId,
     name: (p as any).name ?? patientId,
     conditions: ((p as any).conditions ?? []) as string[],
@@ -266,5 +267,93 @@ export async function loadPatientRow(sim: SimClient, patientId: string): Promise
     stage: (att?.data as any)?.stage,
     location: (att?.data as any)?.location,
     items: [],
+  }
+  try {
+    row.profile = await loadProfile(sim, patientId, (p as any).birthDate, att)
+  } catch (err) {
+    console.error(`profile for ${patientId} unavailable: ${String((err as Error).message).slice(0, 120)}`)
+  }
+  return row
+}
+
+/** Re-read the attendance so stage/location reflect what the hospital record says now (e.g. after discharge). */
+export async function refreshStage(sim: SimClient, row: PatientRow): Promise<void> {
+  const hosp = await sim.siteView('hospital', { patient: row.patientId, limit: 50 })
+  const att = res(hosp).find((r) => r.kind === 'hospital-attendance')
+  if (!att) return
+  row.stage = (att.data as any)?.stage ?? row.stage
+  row.location = (att.data as any)?.location ?? row.location
+}
+
+/**
+ * Banner facts read straight from the record: allergies and active problems
+ * (GP), the patient's own words (GP personal-context note), latest flagged
+ * bloods (diagnostics), activity vs baseline (wearables), home access and
+ * carer availability (community care plan), prescriptions (pharmacy).
+ * Every fact names its source so the banner never asserts more than the
+ * record does. No interpretation — that would be clinical judgement.
+ */
+export async function loadProfile(sim: SimClient, patientId: string, birthDate: string | undefined, att: SimResource | undefined): Promise<PatientProfile> {
+  const [gp, dx, wear, comm, pharm] = await Promise.all([
+    sim.siteView('gp', { patient: patientId, limit: 200 }),
+    sim.siteView('diagnostics', { patient: patientId, limit: 100 }),
+    sim.siteView('wearables', { patient: patientId, limit: 100 }),
+    sim.siteView('community', { patient: patientId, limit: 100 }),
+    sim.siteView('pharmacy', { patient: patientId, limit: 60 }),
+  ])
+  const facts: PatientFact[] = []
+  const ehr = res(gp).find((r) => r.kind === 'ehr-record')
+  const allergies = (((ehr?.data as any)?.allergies ?? []) as any[])
+    .map((a) => (typeof a === 'string' ? a : a?.term ?? a?.name ?? a?.substance))
+    .filter((x): x is string => typeof x === 'string' && x.length > 0)
+  const problems = (((ehr?.data as any)?.problems ?? []) as any[])
+    .filter((x) => x?.status === 'active' && typeof x?.term === 'string')
+    .map((x) => x.term as string)
+  const context = res(gp)
+    .filter((r) => r.kind === 'observation' && typeof (r.data as any)?.context === 'string')
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+  const ownWords = context
+    ? { text: String((context.data as any).context), goal: (context.data as any).goal as string | undefined, resourceId: context.id }
+    : undefined
+  const encounter = res(gp)
+    .filter((r) => r.kind === 'encounter' && typeof (r.data as any)?.author === 'string')
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+
+  // Latest blood analytes: only those the lab flagged, plus eGFR/potassium when present.
+  const reports = res(dx).filter((r) => r.kind === 'report' && (r.data as any)?.kind === 'blood-result')
+  const latest = (panelId: string) =>
+    reports.filter((r) => (r.data as any)?.panel?.id === panelId).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)).at(-1)
+  for (const panelId of ['ue', 'fbc']) {
+    const r = latest(panelId)
+    for (const a of (((r?.data as any)?.analytes ?? []) as any[])) {
+      const flagged = a.referenceHigh != null && (a.value > a.referenceHigh || a.value < a.referenceLow)
+      if (flagged || a.id === 'egfr' || a.id === 'potassium') {
+        facts.push({ label: a.name ?? a.id, value: `${a.value}${a.unit ? ' ' + a.unit : ''}`, bad: !!flagged, source: `diagnostics · ${(r!.data as any)?.panel?.name ?? panelId} report ${r!.id}` })
+      }
+    }
+  }
+  const trend = res(wear).find((r) => r.kind === 'observation' && (r.data as any)?.baseline != null)
+  if (trend) {
+    const d = trend.data as any
+    facts.push({ label: 'Activity', value: `${d.value} vs ${d.baseline} ${d.unit ?? ''} baseline`.trim(), bad: Number(d.value) < Number(d.baseline), source: `wearables · ${trend.id}` })
+  }
+  const plan = res(comm).find((r) => r.kind === 'care-plan')
+  if (plan) {
+    const d = plan.data as any
+    if (d?.homeAccessConfirmed === false) facts.push({ label: 'Home access', value: 'not confirmed', bad: true, source: `community · ${plan.id}` })
+    if (d?.carerAvailable === false) facts.push({ label: 'Carer', value: 'none available', bad: true, source: `community · ${plan.id}` })
+  }
+  const prescriptions = res(pharm)
+    .filter((r) => r.kind === 'prescription')
+    .map((r) => ({ id: r.id, drug: String((r.data as any)?.drug ?? r.title ?? 'prescription'), status: r.status ?? 'unknown' }))
+  return {
+    birthDate,
+    clinician: (att?.data as any)?.clinician && (att?.data as any)?.clinician !== 'Unassigned' ? String((att?.data as any).clinician) : undefined,
+    gp: encounter ? String((encounter.data as any).author) : undefined,
+    allergies,
+    problems,
+    ownWords,
+    facts,
+    prescriptions,
   }
 }

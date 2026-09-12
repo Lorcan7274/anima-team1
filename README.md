@@ -157,3 +157,29 @@ out after `SIM_TIMEOUT_MS` (default 45 s) and every request is reported to an op
 
 `node scripts/quickstart.ts --create-team "Name"` reproduces the handbook quickstart;
 `node scripts/capture.ts` records read-only responses (keys redacted) into `fixtures/`.
+
+Mutating calls accept an idempotency key. Repeating a request with the same key and payload returns the original result, which makes retries safe.
+
+Pass `trace` in the client options to receive one record per request after it completes: method, path, idempotency key, HTTP status, and for writes the parsed request and reply. `src/orchestrator/trace.ts` annotates each record with a plain-language headline and outcome ("Dispensed the prescription" / "Prescription r-3 · now dispensed · v3") so the ward list reads as sentences, with the raw exchange behind a "Show request" drop-down.
+
+## Tests
+
+```bash
+npm test          # mocked fetch, no network or key needed
+npm run typecheck # needs `npm install` first for typescript
+```
+
+## Still to verify against the live API
+
+The response types in `src/sim/types.ts` are loose on purpose. Only the quickstart shapes are confirmed. Download `/api/openapi.json` with a working key and tighten the types for the action bodies, the clock change body, and the workspace responses.
+
+## Capture live responses
+
+With `SIM_KEY` set, this records read-only responses and the OpenAPI document into `fixtures/`:
+
+```bash
+node scripts/capture.ts
+git add fixtures && git commit -m "Capture simulator fixtures" && git push
+```
+
+Keys and tokens are redacted before writing. The fixtures are the basis for tightening the types.
