@@ -36,3 +36,10 @@ test('the route panel always carries a why/next status line', () => {
   assert.match(PAGE, /Agent working: /)
   assert.match(PAGE, /Agent stopped: /)
 })
+
+test('gate circles are buttons that open what the gate needs', () => {
+  assert.match(PAGE, /data-act="gate" data-n="' \+ n \+ '"/)
+  assert.match(PAGE, /overlayKey\.startsWith\('gate:'\)/)
+  assert.doesNotMatch(PAGE, /Each gate must be evidenced/)
+  assert.match(PAGE, /\.trackfill\{[^}]*var\(--nhs-blue\)/)
+})

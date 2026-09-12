@@ -123,8 +123,8 @@ export const PAGE = `<!doctype html>
 .patient{display:flex;align-items:center;gap:12px}.patient-avatar{width:48px;height:48px;border-radius:50%;background:#d9e5f5;display:grid;place-items:center;color:var(--nhs-dark);font-weight:700}.patient strong,.patient>span:not(.patient-avatar),.patient>span>span{display:block}.patient strong{font-size:15px}.patient span{font-size:12px;color:var(--muted);margin-top:2px}.allergy{background:#fbeae8;color:var(--nhs-red);font-weight:700;font-size:12px;padding:8px 10px}.allergy.none{background:var(--wash);color:var(--muted)}
 .page{max-width:1500px;margin:0 auto;padding:34px 42px 70px}.intro{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin-bottom:24px}.intro small{display:block;color:var(--nhs-blue);font-size:13px;font-weight:700;margin-bottom:8px}.titleline{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.intro h2{font-size:38px;line-height:1.12;letter-spacing:-.5px;margin:0;max-width:760px}.top-readiness{display:inline-flex;align-items:center;gap:9px;background:#fbeae8;color:var(--nhs-red);font-size:14px;font-weight:700;padding:11px 14px;border-left:5px solid var(--nhs-red)}.top-readiness:before{content:"";width:14px;height:14px;border-radius:50%;background:var(--nhs-red);display:block}.top-readiness.ready{background:#e9f5ed;color:var(--nhs-green);border-left-color:var(--nhs-green)}.top-readiness.ready:before{background:var(--nhs-green)}.top-readiness.reviewing{background:#fff4cf;color:#5c4200;border-left-color:var(--nhs-amber)}.top-readiness.reviewing:before{background:var(--nhs-amber)}.intro p{font-size:16px;color:var(--muted);line-height:1.5;max-width:670px;margin:12px 0 0}.doctor{display:flex;align-items:center;gap:12px;min-width:235px;padding-bottom:4px}.doctor .doctor-photo{width:50px;height:50px;border-radius:50%;background:#768692;color:#fff;display:grid;place-items:center;font-weight:700;font-size:16px;letter-spacing:.5px;margin:0}.doctor-photo svg{width:33px;height:33px}.doctor strong,.doctor span{display:block}.doctor strong{font-size:14px}.doctor span{font-size:12px;color:var(--muted);margin-top:3px}
 .journey{background:var(--white);box-shadow:var(--shadow);border-top:6px solid var(--nhs-blue);overflow:hidden}.journey-head{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 28px;border-bottom:1px solid var(--line)}.journey-head h3{font-size:20px;margin:0}.journey-head p{font-size:13px;color:var(--muted);margin:5px 0 0}.status{font-size:13px;font-weight:700;color:var(--nhs-red);padding:8px 11px;background:#fbeae8}.status.reviewing{background:#e8edff;color:var(--nhs-blue)}.status.ready{background:#e9f5ed;color:var(--nhs-green)}
-.route{display:grid;grid-template-columns:230px 1fr 290px;align-items:stretch;min-height:355px}.place{padding:28px 24px;display:flex;flex-direction:column;justify-content:center}.hospital{background:#f7f9fa;border-right:1px solid var(--line)}.home{background:#e9f5ed;border-left:1px solid #b7d7c2}.place-icon{width:64px;height:64px;display:grid;place-items:center;background:var(--white);color:var(--nhs-blue);font-size:34px;font-weight:700;border:1px solid var(--line);margin-bottom:18px}.home .place-icon{color:var(--nhs-green)}.place small{font-size:12px;font-weight:700;color:var(--muted)}.place h4{font-size:22px;margin:5px 0}.place p{font-size:13px;line-height:1.45;color:var(--muted);margin:0}.place .flags{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px}.place .flags span{font-size:11px;padding:3px 7px;background:#fff;border:1px solid var(--line)}.place .flags span.bad{color:var(--nhs-red);border-color:#f0c3bd;background:#fbeae8}.context{margin-top:18px;padding-top:16px;border-top:1px solid #b7d7c2}.context b{font-size:12px;display:block;margin-bottom:8px}.context span{display:block;font-size:12px;line-height:1.55}.context em{font-size:11px;color:var(--muted);font-style:normal;display:block;margin-top:10px}
-.crossing{padding:30px 34px;position:relative;display:flex;flex-direction:column;justify-content:center}.track{height:4px;background:#d8dde0;position:absolute;left:calc(10% - 6px);right:calc(10% - 6px);top:24px;z-index:0}.trackfill{height:100%;width:0;background:var(--nhs-amber);transition:width .5s ease}.journey.complete .trackfill{background:var(--nhs-green)}.gates{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:15px;margin-top:20px}.gate{text-align:center}.gate-mark{width:52px;height:52px;margin:0 auto 12px;background:#fff;border:3px solid #aeb7bd;border-radius:50%;display:grid;place-items:center;font-size:23px;line-height:1;font-weight:700;color:#768692;position:relative;z-index:1;transition:.25s}.gate b{display:block;font-size:13px}.gate span{font-size:11px;color:var(--muted);display:block;margin-top:4px}.gate-state{display:inline-block;margin-top:8px;font-size:10px;font-style:normal;font-weight:700;color:#4c6272}
+.route{display:grid;grid-template-columns:230px 1fr 290px;align-items:stretch;min-height:355px}.place{padding:28px 24px;display:flex;flex-direction:column;justify-content:center}.hospital{background:#f7f9fa;border-right:1px solid var(--line)}.home{background:#e9f5ed;border-left:1px solid #b7d7c2}.place-icon{width:64px;height:64px;display:grid;place-items:center;background:var(--white);color:var(--nhs-blue);font-size:34px;font-weight:700;border:1px solid var(--line);margin-bottom:18px}.home .place-icon{color:var(--nhs-green)}.place small{font-size:12px;font-weight:700;color:var(--muted)}.place h4{font-size:22px;margin:5px 0}.place p{font-size:13px;line-height:1.45;color:var(--muted);margin:0}.place .flags{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px}.pgroup{margin-top:14px}.pgroup small{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}.chips{display:flex;flex-wrap:wrap;gap:5px}.chip{font-size:12px;line-height:1.3;padding:4px 8px;border-radius:4px;border:1px solid var(--line);background:#fff;color:var(--ink)}.chip.cond{background:var(--pale);border-color:#b9c6f0;color:var(--nhs-dark);font-weight:700}.chip.prob{background:#fff;color:var(--muted)}.chip.bad{background:#fbeae8;border-color:#f0b9b3;color:var(--nhs-red);font-weight:700}.chip.warn{background:#fff8e6;border-color:#f3dc9a;color:#5c4200;font-weight:700}.chip.none{color:var(--muted);border-style:dashed}.place .flags span{font-size:11px;padding:3px 7px;background:#fff;border:1px solid var(--line)}.place .flags span.bad{color:var(--nhs-red);border-color:#f0c3bd;background:#fbeae8}.context{margin-top:18px;padding-top:16px;border-top:1px solid #b7d7c2}.context b{font-size:12px;display:block;margin-bottom:8px}.context span{display:block;font-size:12px;line-height:1.55}.context em{font-size:11px;color:var(--muted);font-style:normal;display:block;margin-top:10px}
+.crossing{padding:30px 34px;position:relative;display:flex;flex-direction:column;justify-content:center}.track{height:4px;background:#d8dde0;position:absolute;left:calc(10% - 6px);right:calc(10% - 6px);top:24px;z-index:0}.trackfill{height:100%;width:0;background:var(--nhs-blue);transition:width .5s ease}.journey.complete .trackfill{background:var(--nhs-green)}.gates{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:15px;margin-top:20px}.gate{text-align:center;cursor:pointer;border-radius:8px;padding:6px 4px}.gate:hover .gate-mark,.gate:focus-visible .gate-mark{box-shadow:0 0 0 4px rgba(0,94,184,.25)}.gate:focus-visible{outline:none}.gate-mark{width:52px;height:52px;margin:0 auto 12px;background:#fff;border:3px solid #aeb7bd;border-radius:50%;display:grid;place-items:center;font-size:23px;line-height:1;font-weight:700;color:#768692;position:relative;z-index:1;transition:.25s}.gate b{display:block;font-size:13px}.gate span{font-size:11px;color:var(--muted);display:block;margin-top:4px}.gate-state{display:inline-block;margin-top:8px;font-size:10px;font-style:normal;font-weight:700;color:#4c6272}
 .gate.scanning .gate-mark,.gate.actionable .gate-mark{background:#fff4cf;border-color:var(--nhs-amber);color:#5c4200}.gate.blocked .gate-mark{background:#fbeae8;border-color:var(--nhs-red);color:var(--nhs-red)}.gate.cleared .gate-mark{background:var(--nhs-green);border-color:var(--nhs-green);color:#fff}.gate.actionable .gate-state,.gate.scanning .gate-state{color:#5c4200}.gate.blocked .gate-state{color:var(--nhs-red)}.gate.cleared .gate-state{color:var(--nhs-green)}.gate.blocked b{color:var(--nhs-red)}
 .route-legend{display:flex;justify-content:center;gap:20px;flex-wrap:wrap;margin-top:32px}.route-legend span{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px}.route-legend i{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-style:normal;font-weight:700;color:#fff}.route-legend .lg-red{background:var(--nhs-red)}.route-legend .lg-amber{background:var(--nhs-amber);color:#5c4200}.route-legend .lg-green{background:var(--nhs-green)}.route-note{text-align:center;margin:40px auto 0;max-width:600px}.route-note strong{display:block;font-size:20px}.route-note p{font-size:14px;color:var(--muted);line-height:1.45;margin:7px 0 0}
 .actionbar{display:flex;align-items:center;justify-content:space-between;gap:22px;background:#f7f9fa;border-top:1px solid var(--line);padding:20px 28px;flex-wrap:wrap}.actionbar p{font-size:13px;line-height:1.4;color:var(--muted);margin:0;max-width:720px}.actionbar .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.primary{border:0;background:var(--nhs-green);color:#fff;font-weight:700;font-size:16px;padding:14px 21px;min-width:225px;box-shadow:0 3px 0 #004d24}.primary:disabled{background:#768692;box-shadow:none;cursor:default}.secondary{border:2px solid var(--nhs-blue);background:#fff;color:var(--nhs-blue);font-weight:700;padding:11px 15px;text-decoration:none;font-size:14px;display:inline-block}.scan{height:10px;background:#d8dde0;display:none;overflow:hidden}.scan.on{display:block}.scan i{display:block;height:100%;width:35%;background:var(--nhs-blue);animation:scan 1.6s ease-in-out infinite}@keyframes scan{0%{margin-left:-35%}100%{margin-left:100%}}
@@ -175,7 +175,7 @@ details.reqdd{margin:4px 0 0 88px}details.reqdd summary{cursor:pointer;color:var
   <main class="page">
     <section class="intro" id="intro"></section>
     <section class="journey" id="journey" aria-live="polite">
-      <header class="journey-head"><span><h3>The route from hospital to home</h3><p>Each gate must be evidenced in the system that owns it.</p></span><span class="status" id="status"></span></header>
+      <header class="journey-head"><span><h3>The route from hospital to home</h3></span><span class="status" id="status"></span></header>
       <div class="why" id="why" aria-live="polite"></div>
       <div class="scan" id="scan"><i></i></div>
       <div class="route">
@@ -256,7 +256,7 @@ function gateState(items, n) {
   const bh = items.find((i) => i.state === 'blocked_human')
   if (bh) return { cls: 'blocked', mark: '', label: bh.escalation ? 'Escalated, decision pending' : 'External decision needed' }
   if (items.every((i) => i.state === 'verified')) return { cls: 'cleared', mark: '✓', label: 'Verified' }
-  if (items.some((i) => WORKING.includes(i.state))) return { cls: 'scanning', mark: '…', label: items.some((i) => i.state === 'awaiting_verification') ? 'Verifying' : 'In progress' }
+  if (items.some((i) => WORKING.includes(i.state))) return { cls: 'scanning', mark: '', label: items.some((i) => i.state === 'awaiting_verification') ? 'Verifying' : 'In progress' }
   if (items.some((i) => i.state === 'proposed')) return { cls: 'actionable', mark: '', label: 'Action required' }
   return { cls: '', mark: '', label: 'Not checked' }
 }
@@ -290,7 +290,7 @@ function readiness(p, s) {
   if (p.stage === 'discharged') return R({ badge: 'Discharged home', badgeCls: 'ready', status: 'Discharged in the hospital record', statusCls: 'ready', note: ['Every dependency has evidence', 'The attendance is closed in the hospital record. The receipt keeps the evidence.'], action: 'Discharged', disabled: true, text: 'The discharge is recorded in the hospital EPR.', complete: true })
   if (ready) return R({ badge: 'Ready for clinical discharge decision', badgeCls: 'ready', status: 'Ready for clinical decision', statusCls: 'ready', note: ['Every dependency now has evidence', 'The responsible clinician can make the discharge decision.'], action: 'Review complete', disabled: true, text: 'The evidence is complete. The final discharge decision remains with the clinician.', complete: true })
   if (!items.length) return R({ badge: s.busy ? 'Checking the route' : 'Nothing found yet', badgeCls: 'reviewing', status: s.phase || 'Reading the records', statusCls: 'reviewing', note: [s.busy ? 'Checking the records' : 'No barriers found', 'One review reads the hospital, pharmacy, diagnostics, community, home monitoring and GP records.'], action: 'Checking records', disabled: true, text: 'Homeward will surface what it can coordinate and what still requires a person.' })
-  if (proposed.length) return R({ badge: 'Not ready: ' + open + ' outstanding', badgeCls: '', status: 'Not ready: plan awaiting review', statusCls: '', note: [proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + ' can proceed; ' + human.length + ' decision' + (human.length === 1 ? '' : 's') + ' need' + (human.length === 1 ? 's' : '') + ' people'], action: 'Review plan (' + proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + ')', disabled: false, kind: 'plan', text: 'See the exact steps the agent will take, then approve. Nothing runs before that.' })
+  if (proposed.length) return R({ badge: 'Not ready: ' + open + ' outstanding', badgeCls: '', status: 'Not ready: plan awaiting review', statusCls: '', note: [proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + ' can proceed; ' + human.length + ' decision' + (human.length === 1 ? '' : 's') + ' need' + (human.length === 1 ? 's' : '') + ' people'], action: 'Review plan (' + proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + ')', disabled: false, kind: 'plan', text: '' })
   if (working.length) {
     const waiting = !s.busy && /approve/i.test(s.phase || '')
     return R({ badge: 'Not ready: ' + open + ' outstanding', badgeCls: 'reviewing', status: s.busy ? (s.phase || 'Coordinating') : waiting ? 'Approved, starting shortly' : 'Approved, coordinating', statusCls: 'reviewing', note: [s.busy ? (s.phase || 'Coordinating') : waiting ? 'Approved, starting shortly' : 'Coordinating ' + working.length + ' action' + (working.length === 1 ? '' : 's'), waiting ? 'The agent starts this plan on its next round; other patients do not need approving first.' : 'Each approved step is re-read in the owning service after time moves.'], action: 'Coordinating ' + working.length + ' action' + (working.length === 1 ? '' : 's'), disabled: true, text: 'Approved actions run in parallel; each is verified against the record of the service that owns it.', scanning: s.busy })
@@ -335,6 +335,12 @@ function whyStatus(p, s) {
               : 'Press Prepare escalation to hand this to the team that owns the decision. The agent cannot clear it.' } }
   return { tone: 'good', head: 'Ready: every item verified', why: 'All operational work is verified in the service that owns it.', next: 'The responsible clinician makes the discharge decision.' }
 }
+/** Starting-point panel helpers: de-duplicated, labelled, colour-coded chips instead of one run-on sentence. */
+const uniq = (xs) => [...new Set(xs.map((x) => String(x).trim()).filter(Boolean))]
+const chip = (text, tone, title) => '<span class="chip ' + tone + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + esc(text) + '</span>'
+const placeGroup = (label, chips, empty) => (chips.length || empty)
+  ? '<div class="pgroup"><small>' + label + '</small><div class="chips">' + (chips.join('') || '<span class="chip none">' + esc(empty) + '</span>') + '</div></div>'
+  : ''
 function renderWhy(p, s) {
   const w = whyStatus(p, s)
   const el = document.getElementById('why')
@@ -442,8 +448,10 @@ function render(s) {
   document.getElementById('scan').classList.toggle('on', !!(s.busy && (r.scanning || !p.items.length || /reading|detect|loading|joining|admitting/i.test(s.phase || ''))))
   const bad = (pr.facts || []).filter((f) => f.bad)
   document.getElementById('placeHospital').innerHTML = '<div class="place-icon">H</div><small>Starting point</small><h4>' + esc(p.location || p.stage || 'Hospital') + '</h4>' +
-    '<p>' + esc((p.conditions || []).join(', ') || 'No conditions recorded') + (pr.problems && pr.problems.length ? '. Active problems: ' + esc(pr.problems.join(', ')) : '') + '.</p>' +
-    (bad.length ? '<div class="flags">' + bad.map((f) => '<span class="bad" title="' + esc(f.source) + '">' + esc(f.label) + ' ' + esc(f.value) + '</span>').join('') + '</div>' : '')
+    placeGroup('Conditions', uniq(p.conditions || []).map((c) => chip(c, 'cond')), 'None recorded') +
+    placeGroup('Active problems', uniq(pr.problems || []).map((c) => chip(c, 'prob')), '') +
+    placeGroup('Flagged results', bad.filter((f) => /^diagnostics/.test(f.source)).map((f) => chip(f.label + ' ' + f.value, 'bad', f.source)), '') +
+    placeGroup('Activity and home', bad.filter((f) => !/^diagnostics/.test(f.source)).map((f) => chip(f.label + ' ' + f.value, 'warn', f.source)), '')
   document.getElementById('placeHome').innerHTML = '<div class="place-icon">⌂</div><small>Destination</small><h4>Home situation</h4>' +
     '<p>' + (pr.ownWords ? esc(pr.ownWords.text) : 'No personal context on the GP record.') + '</p>' +
     '<div class="context"><b>What matters to ' + esc(first(p)) + '</b>' + ((p.goals || []).length ? p.goals.map((g) => '<span>' + esc(g) + '</span>').join('') : '<span>No goals recorded.</span>') +
@@ -454,7 +462,7 @@ function render(s) {
     GATES.map((g, n) => {
       const items = p.items.filter((i) => g.kinds.includes(kindOf(i)))
       const gs = gateState(items, n + 1)
-      return '<div class="gate ' + gs.cls + '"><span class="gate-mark">' + gs.mark + '</span><b>' + g.label + '</b><span>' + g.sub + '</span><em class="gate-state">' + esc(gs.label) + '</em></div>'
+      return '<div class="gate ' + gs.cls + '" data-act="gate" data-n="' + n + '" role="button" tabindex="0" title="Open this gate"><span class="gate-mark">' + gs.mark + '</span><b>' + g.label + '</b><span>' + g.sub + '</span><em class="gate-state">' + esc(gs.label) + '</em></div>'
     }).join('')
   document.getElementById('routeLegend').hidden = !p.items.length
   document.getElementById('routeNote').innerHTML = '<strong>' + esc(r.note[0]) + '</strong><p>' + esc(r.note[1]) + '</p>'
@@ -473,12 +481,7 @@ function render(s) {
   }).join('') || '<div class="empty">No operational work found for this patient.</div>'
   const pending = humans.filter((i) => i.state !== 'verified')
   document.getElementById('confirmations').innerHTML = humans.length ? '<div class="confirm-title">' + (pending.length ? pending.length + ' named confirmation' + (pending.length === 1 ? '' : 's') + ' still protect' + (pending.length === 1 ? 's' : '') + ' the final decision' : 'All named confirmations are recorded') + '</div>' +
-    humans.map((i) => {
-      if (i.state === 'clinical_hold') return '<div class="confirm"><span><b>' + esc(i.title) + '</b><small>' + esc(i.humanReason || 'Clinical decision, never automated.') + '</small></span><button data-act="hold" data-id="' + esc(i.id) + '">Record confirmation</button></div>'
-      if (i.state === 'verified') return '<div class="confirm done"><span><b>' + esc(i.title) + '</b><small>' + esc(i.verification ? i.verification.observed : 'Confirmed') + '</small></span><button disabled>Confirmed</button></div>'
-      if (i.escalation) return '<div class="confirm sent"><span><b>' + esc(i.title) + '</b><small>Escalated to ' + esc(i.escalation.responsibleTeam) + ' — ' + esc(i.escalation.nextAction) + (i.escalation.source === 'fallback' ? ' (canned note; model unavailable)' : '') + '. Case stays blocked until they decide.</small></span><button disabled>Escalated</button></div>'
-      return '<div class="confirm"><span><b>' + esc(i.title) + '</b><small>' + esc(i.humanReason || 'External decision the agent must not make.') + '</small></span><button data-act="escalate" data-id="' + esc(i.id) + '">Prepare escalation</button></div>'
-    }).join('') : ''
+    humans.map(confirmRow).join('') : ''
   renderPack(s, p)
   if (overlayKey) renderOverlay()
   restoreOpen()
@@ -516,6 +519,27 @@ function renderPack(s, p) {
 }
 
 // --- overlays: the plan, a task, the trace --------------------------------
+/** One person's action on a human item: confirm a hold, prepare or show an escalation, or the confirmed state. */
+function confirmRow(i) {
+      if (i.state === 'clinical_hold') return '<div class="confirm"><span><b>' + esc(i.title) + '</b><small>' + esc(i.humanReason || 'Clinical decision, never automated.') + '</small></span><button data-act="hold" data-id="' + esc(i.id) + '">Record confirmation</button></div>'
+      if (i.state === 'verified') return '<div class="confirm done"><span><b>' + esc(i.title) + '</b><small>' + esc(i.verification ? i.verification.observed : 'Confirmed') + '</small></span><button disabled>Confirmed</button></div>'
+      if (i.escalation) return '<div class="confirm sent"><span><b>' + esc(i.title) + '</b><small>Escalated to ' + esc(i.escalation.responsibleTeam) + ' — ' + esc(i.escalation.nextAction) + (i.escalation.source === 'fallback' ? ' (canned note; model unavailable)' : '') + '. Case stays blocked until they decide.</small></span><button disabled>Escalated</button></div>'
+      return '<div class="confirm"><span><b>' + esc(i.title) + '</b><small>' + esc(i.humanReason || 'External decision the agent must not make.') + '</small></span><button data-act="escalate" data-id="' + esc(i.id) + '">Prepare escalation</button></div>'
+}
+
+/** A gate circle opens whatever that gate needs: the plan to approve, the confirmation to record, the escalation, or the agent's trace. */
+function openGate(n) {
+  const s = lastState; if (!s) return
+  const p = patient(s); if (!p) return
+  const g = GATES[n]; if (!g) return
+  const items = p.items.filter((i) => g.kinds.includes(kindOf(i)))
+  if (items.length === 1) {
+    const i = items[0]
+    if (i.state === 'proposed') return openOverlay('plan')
+    if (!isHuman(i)) return openOverlay('item:' + i.id)
+  }
+  openOverlay('gate:' + n)
+}
 function openOverlay(key) { overlayKey = key; renderOverlay(); document.getElementById('overlay').classList.add('open') }
 function closeOverlay() { overlayKey = null; document.getElementById('overlay').classList.remove('open') }
 function renderOverlay() {
@@ -533,6 +557,18 @@ function renderOverlay() {
       (i.plan && i.plan.length ? '<ol class="plan">' + i.plan.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>' : '<div class="ev">' + esc(i.proposedAction || '') + '</div>') + '</div>').join('') +
       (humans.length ? '<div class="grp"><h4>Not in this plan<span>the agent will not touch these</span></h4>' + humans.map((i) => '<div class="pi">' + row(i) + '<div class="ev">' + esc(i.humanReason || 'Needs a person.') + '</div></div>').join('') + '</div>' : '') +
       (proposed.length ? '<div class="planfoot"><button class="primary" data-act="approve" data-p="' + esc(p.patientId) + '">Approve ' + proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + '</button><span class="sub">Approval starts the agent on these steps only. Time is then advanced and every step is re-checked in the owning service.</span></div>' : '<div class="empty">Nothing is waiting for approval.</div>')
+    return
+  }
+  if (overlayKey.startsWith('gate:')) {
+    const g = GATES[Number(overlayKey.slice(5))]
+    const items = p.items.filter((i) => g.kinds.includes(kindOf(i)))
+    T.textContent = g.label + ': ' + g.sub
+    U.textContent = items.length ? items.length + ' item' + (items.length === 1 ? '' : 's') + ' at this gate; act on each below' : 'No barrier found at this gate.'
+    B.innerHTML = items.map((i) => {
+      if (isHuman(i)) return confirmRow(i)
+      if (i.state === 'proposed') return '<div class="confirm"><span><b>' + esc(jobTitle(i)) + '</b><small>' + esc(shortState(i)) + '</small></span><button data-act="plan">Review plan</button></div>'
+      return '<div class="confirm' + (i.state === 'verified' ? ' done' : '') + '"><span><b>' + esc(jobTitle(i)) + '</b><small>' + esc(shortState(i)) + '</small></span><button data-act="item" data-id="' + esc(i.id) + '">' + (i.state === 'failed' ? 'See the error' : 'See what the agent did') + '</button></div>'
+    }).join('') || '<div class="empty">Nothing to do here.</div>'
     return
   }
   if (overlayKey === 'trace') {
@@ -578,6 +614,8 @@ document.addEventListener('click', async (e) => {
   if (act === 'select') { selectedPatient = el.dataset.p; letterDirty = false; lastLetterJson = ''; if (lastState) render(lastState) }
   else if (act === 'main') { if (el.dataset.kind === 'plan') openOverlay('plan') }
   else if (act === 'trace') openOverlay('trace')
+  else if (act === 'plan') openOverlay('plan')
+  else if (act === 'gate') openGate(Number(el.dataset.n))
   else if (act === 'item') openOverlay('item:' + el.dataset.id)
   else if (act === 'close') closeOverlay()
   else if (act === 'approve') { closeOverlay(); await post('/approve?patient=' + encodeURIComponent(el.dataset.p)) }
