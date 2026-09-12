@@ -158,7 +158,11 @@ export class HttpClient {
     const res = payload as { id?: string; status?: string; version?: number } | undefined
     this.record({
       ...base, status: response.status, ok: response.ok,
-      got: res && typeof res === 'object' && res.id ? `${res.id} ${res.status ?? ''} v${res.version ?? ''}`.trim() : undefined,
+      // Only a resource reply (id + status/version) is worth summarising; a
+      // site view also carries an `id` (the world) and would read as noise.
+      got: res && typeof res === 'object' && res.id && (res.status != null || res.version != null)
+        ? `${res.id}${res.status != null ? ' ' + res.status : ''}${res.version != null ? ' v' + res.version : ''}`
+        : undefined,
       request: method === 'GET' ? undefined : options.body,
       reply: method === 'GET' ? undefined : payload,
       error: response.ok ? undefined : messageOf(payload),

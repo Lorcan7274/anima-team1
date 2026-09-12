@@ -139,6 +139,49 @@ const resolveMedicines: Resolver = async (ctx, item) => {
   return { action: 'link+dispense+collect', resourceId: cur.id, idempotencyKey: key(ctx, item, 'link'), atSimTime: await simNow(ctx) }
 }
 
+/**
+ * The steps a resolver will take for an item, then what the verifier will
+ * require, in plain words. Shown at "Review plan" before anything is approved.
+ * Keep in step with the resolvers above — this is their contract with staff.
+ */
+export function planFor(item: ChecklistItem): string[] | undefined {
+  const rx = item.evidence.find((e) => e.site === 'hospital' && /prescription|medication supply/i.test(e.quote))
+  if (item.id.endsWith('-medicines')) return [
+    'Find the approved prescription in the pharmacy record' + (rx ? ` (${rx.resourceId})` : ''),
+    'Reserve one pack of the prescribed drug from pharmacy stock against that prescription',
+    'Dispense the prescription',
+    'Record the medicines as collected',
+    'After the clock moves: re-read the same prescription and require status "collected"',
+  ]
+  if (item.id.endsWith('-bloods')) return [
+    'Read the latest blood results to write the clinical details on the request',
+    'Order a routine urea & electrolytes test from the hospital',
+    'Order a routine full blood count',
+    'After the clock moves: re-read both orders and require results to be available',
+  ]
+  if (item.id.endsWith('-device')) return [
+    'Issue a home activity watch through the home monitoring service',
+    'After the clock moves: require at least one reading received since it was issued',
+  ]
+  if (item.id.endsWith('-visit')) return [
+    'Book a post-discharge home support visit with the community team',
+    'After the clock moves: re-read that visit and require status "completed"',
+  ]
+  if (item.id.endsWith('-summary')) return [
+    'Read the record and latest results, then draft all seven discharge summary sections' +
+      (process.env.OPENAI_API_KEY ? ' (written by the model)' : ' (model key not set: a canned draft will be used and marked as such)'),
+    'Save the draft in the hospital record',
+    ...(item.draftOnly
+      ? ['Hold the draft: this patient is blocked, so nothing is sent', 'After the clock moves: require the draft to exist and to still be unsent']
+      : ['Send it to the GP practice', 'After the clock moves: require it to appear as "sent" in the GP practice\'s own document list']),
+  ]
+  if (item.id.endsWith('-follow-up')) return [
+    'Create a task on the GP practice worklist: telephone review within 48 hours',
+    'After the clock moves: require that task to be present on the worklist',
+  ]
+  return undefined
+}
+
 /** item.id suffix -> resolver. clinical_hold / blocked_human items have none by design. */
 export function resolverFor(item: ChecklistItem): Resolver | undefined {
   if (item.id.endsWith('-bloods')) return resolveBloods

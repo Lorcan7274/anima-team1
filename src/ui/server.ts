@@ -223,6 +223,23 @@ export const PAGE = `<!doctype html>
   details.reqdd[open] summary::before{content:'▾'}
   details.reqdd .head{margin-top:8px}
   .stmt{font-size:12px;color:var(--ink-2);margin-top:6px;font-style:normal}
+  .facts{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+  .fact{font-size:11.5px;color:var(--ink-2);background:#f4f4f1;border-radius:6px;padding:3px 8px}
+  .fact b{font-weight:530;color:var(--ink)}
+  .fact.bad{background:rgba(208,59,59,0.08);color:#a32f2f}
+  .fact.bad b{color:#a32f2f}
+  .vwarn{margin-top:10px;font-size:12px;color:#7a5605;background:rgba(250,178,25,0.12);border-radius:6px;padding:6px 10px}
+  .own{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:16px 18px;margin-top:14px}
+  .own .speaker{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+  .own blockquote{font-size:15px;line-height:1.5;margin-top:6px}
+  .own .goal{margin-top:8px;font-size:12px;color:var(--ink-2)}
+  .own .src{margin-top:4px;font-size:11px;color:var(--ink-3)}
+  .refuse{background:rgba(208,59,59,0.08);color:#a32f2f;border-radius:var(--radius);padding:12px 16px;font-weight:480;margin:0 0 14px}
+  .refuse span{display:block;font-weight:400;margin-top:2px;color:var(--ink-2)}
+  ol.plan{margin:8px 0 0 0;padding-left:22px;font-size:13px;line-height:1.55;color:var(--ink)}
+  ol.plan li{margin:3px 0}
+  .planfoot{display:flex;align-items:center;gap:14px;margin-top:18px;padding-top:14px;border-top:1px solid var(--grid)}
+  .planfoot .sub{font-size:12px;color:var(--ink-3)}
 
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
   .kpi{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 16px;
@@ -475,7 +492,7 @@ const OWNER_LABEL = {
   gp: 'GP', hospital: 'Hospital', pharmacy: 'Pharmacy', community: 'Community',
   diagnostics: 'Diagnostics', wearables: 'Home Health', clinician: 'Clinician',
 }
-const OPEN = ['proposed','approved','resolving','awaiting_verification','failed']
+const OPEN = ['approved','resolving','awaiting_verification']
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
 const q = (s) => esc(String(s ?? '').replace(/"/g, ''))
 // How the service is named inside a sentence ("acting in the pharmacy").
@@ -679,6 +696,43 @@ const wireRow = (t, withPayload) => {
       : '') + '</div>'
 }
 
+// Once verified, say what is now true rather than repeating the problem.
+const DONE_TITLE = {
+  medicines: 'Discharge medicines dispensed and collected', bloods: 'Post-discharge bloods ordered and resulted',
+  device: 'Home monitoring device connected, first reading received', visit: 'Home support visit completed',
+  summary: 'Discharge summary sent to the GP', 'follow-up': 'GP follow-up task on the practice worklist',
+  'clinical-hold': 'Clinical review confirmed by a clinician',
+}
+const kindOf = (i) => Object.keys(DONE_TITLE).find((k) => i.id.endsWith('-' + k))
+const displayTitle = (i) => {
+  if (i.state !== 'verified') return i.title
+  if (i.draftOnly && kindOf(i) === 'summary') return 'Discharge summary drafted and held (not sent)'
+  return DONE_TITLE[kindOf(i)] || i.title
+}
+const isHuman = (i) => i.owner === 'clinician' || i.state === 'clinical_hold' || i.state === 'blocked_human'
+// "Review plan": every proposed item with the exact steps the agent will take, then Approve.
+const planModal = (p) => {
+  const proposed = p.items.filter((i) => i.state === 'proposed')
+  const humans = p.items.filter((i) => isHuman(i) && i.state !== 'verified')
+  document.getElementById('modalTitle').textContent = 'Plan for ' + p.name
+  document.getElementById('modalSub').textContent = proposed.length + ' proposed action' + (proposed.length === 1 ? '' : 's') +
+    ' · these are the exact steps the agent will take once you approve, and what it will check afterwards'
+  const html = proposed.map((i) =>
+    '<div class="mi"><div class="row">' + chip(i.state) + '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
+    '<span class="title">' + esc(i.title) + '</span></div>' +
+    ((i.evidence || [])[0] ? '<div class="detail"><div><span class="tag rec">record</span> &ldquo;' + q(i.evidence[0].quote) + '&rdquo;</div></div>' : '') +
+    (i.plan && i.plan.length
+      ? '<ol class="plan">' + i.plan.map((step) => '<li>' + esc(step) + '</li>').join('') + '</ol>'
+      : '<div class="detail"><div>' + esc(i.proposedAction || 'No steps described.') + '</div></div>') + '</div>').join('') +
+    (humans.length ? '<div class="group"><h3>Not in this plan <span>the agent will not touch these</span></h3>' +
+      humans.map((i) => '<div class="mi"><div class="row">' + chip(i.state) + '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
+        '<span class="title">' + esc(i.title) + '</span></div><div class="detail"><div>' + esc(i.humanReason || 'Needs a person.') + '</div></div></div>').join('') + '</div>' : '') +
+    (proposed.length
+      ? '<div class="planfoot"><button class="primary" data-p="' + esc(p.patientId) + '" onclick="approvePatient(this.dataset.p);closeModal()">Approve ' + proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + '</button>' +
+        '<span class="sub">Approval starts the agent on these steps only. Time is then advanced and every step is re-checked in the owning service.</span></div>'
+      : '<div class="empty">Nothing is waiting for approval.</div>')
+  document.getElementById('modalBody').innerHTML = html
+}
 function renderModal() { renderModalBody(); restoreOpen() }
 function renderModalBody() {
   if (!lastState) return
@@ -728,6 +782,11 @@ function renderModalBody() {
     document.getElementById('modalBody').innerHTML = html.join('') || '<div class="empty">No calls yet.</div>'
     return
   }
+  if (openKey && openKey.startsWith('plan:')) {
+    const p0 = s0.patients.find((x) => x.patientId === openKey.slice(5))
+    if (p0) planModal(p0)
+    return
+  }
   if (openKey && openKey.startsWith('item:')) {
     const id = openKey.slice(5)
     let found = null
@@ -745,7 +804,8 @@ function renderModalBody() {
         '<div class="empty">Rule-detected from structured state.</div>') + '</div>')
     parts.push('<div class="group"><h3>Plan &amp; approval</h3>' +
       (i.proposedAction ? kv('Plan', esc(i.proposedAction)) : '') +
-      kv('Approval', i.approval ? 'Approved by ' + esc(i.approval.by) : 'Not yet — awaiting staff approval') +
+      (isHuman(i) ? '' : kv('Approval', i.approval ? 'Approved by ' + esc(i.approval.by) : 'Not yet — awaiting staff approval')) +
+      (i.plan && i.plan.length && !i.resolution ? kv('Steps', '<ol class="plan" style="margin:0">' + i.plan.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>') : '') +
       (i.humanReason ? kv('Needs a human', esc(i.humanReason)) : '') + '</div>')
     const wire = (s0.trace || []).filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id))
     parts.push('<div class="group"><h3>Agent &harr; ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' <span>' + wire.length + ' calls, oldest first</span></h3>' +
@@ -754,10 +814,10 @@ function renderModalBody() {
       kv(i.generated === 'model' ? '<span class="tag ai">AI</span>' : '<span class="err">⚠</span>',
         i.generated === 'model' ? 'The live model wrote the drafted content for this task' : 'Canned fallback used — model unavailable') + '</div>')
     if (i.verification) parts.push('<div class="group"><h3>Independent verification</h3>' +
-      kv('<span class="tag sim">sim</span>', (i.verification.passed ? '<span style="color:var(--good);font-weight:480">✓ passed</span> — ' : '<span class="err">✗ not yet</span> — ') + esc(i.verification.observed)) +
+      kv(i.owner === 'clinician' ? '<span class="tag rec">human</span>' : '<span class="tag sim">sim</span>', (i.verification.passed ? '<span style="color:var(--good);font-weight:480">✓ passed</span> — ' : '<span class="err">✗ not yet</span> — ') + esc(i.verification.observed)) +
       (caveatFor(i.id) ? kv('Does not prove', esc(caveatFor(i.id))) : '') + '</div>')
     if (i.escalation) parts.push('<div class="group"><h3>Escalation</h3>' +
-      kv('<span class="tag ai">AI</span>', '<b>' + esc(i.escalation.responsibleTeam) + '</b> — ' + esc(i.escalation.nextAction)) +
+      kv(i.escalation.source === 'fallback' ? '<span class="err">⚠ canned</span>' : '<span class="tag ai">AI</span>', '<b>' + esc(i.escalation.responsibleTeam) + '</b> — ' + esc(i.escalation.nextAction)) +
       kv('Note', esc(i.escalation.note)) + '</div>')
     document.getElementById('modalBody').innerHTML = parts.join('')
     return
@@ -815,8 +875,8 @@ function render(s) {
   document.getElementById('kpis').innerHTML =
     kpi('ward', 'On the ward', s.patients.length, 'tracked patients') +
     kpi('ready', 'Ready to discharge', ready, 'every item verified') +
-    kpi('open', 'Open barriers', open, 'agent is working these', spark()) +
-    kpi('human', 'Awaiting a human', human, 'holds + external decisions')
+    kpi('open', 'Agent working', open, 'approved, acting or verifying', spark()) +
+    kpi('human', 'Needs a person', human + all.filter((i) => i.state === 'proposed' || i.state === 'failed').length, 'approvals, holds, decisions, failures')
   if (openKey) renderModal()
 
   const proposed = all.filter((i) => i.state === 'proposed').length
@@ -857,15 +917,18 @@ function render(s) {
     const ready = p.items.length && p.items.every((i) => i.state === 'verified')
     const working = p.items.some((i) => ['approved', 'resolving', 'awaiting_verification'].includes(i.state))
     const open = p.items.filter((i) => i.state !== 'verified').length
-    let head, cls
-    if (ready) { head = 'Ready for discharge'; cls = 'yes' }
-    else if (human.length || proposed.length) { head = 'Needs a human'; cls = 'no' }
-    else if (working) { head = 'In progress'; cls = 'warn' }
+    let head, cls, note = ''
+    const waitingOthers = working && !p.items.some((i) => ['resolving', 'awaiting_verification'].includes(i.state)) && /approve/i.test(s.phase || '')
+    if (p.stage === 'discharged') { head = 'Discharged'; cls = 'yes'; note = 'Discharged in the hospital record.' }
+    else if (ready) { head = 'Ready for discharge'; cls = 'yes' }
+    else if (human.length) { head = 'Needs a human'; cls = 'no' }
+    else if (proposed.length) { head = 'Plan awaiting review'; cls = 'no'; note = 'Nothing happens until staff review and approve the plan.' }
+    else if (waitingOthers) { head = 'Approved, not started'; cls = 'warn'; note = 'The agent starts once every patient\\'s plan is approved.' }
     else { head = 'In progress'; cls = 'warn' }
     const acts = []
-    if (proposed.length) acts.push('<div class="acard"><span class="t">Approve the plan</span>' +
-      '<span class="sub">' + proposed.length + ' actions wait for your approval</span>' +
-      '<span class="act"><button class="primary" data-p="' + esc(p.patientId) + '" onclick="approvePatient(this.dataset.p)">Approve</button></span></div>')
+    if (proposed.length) acts.push('<div class="acard"><span class="t">Review the plan</span>' +
+      '<span class="sub">' + proposed.length + ' proposed actions — see the exact steps before approving</span>' +
+      '<span class="act"><button class="primary" data-p="' + esc(p.patientId) + '" onclick="openModal(\\'plan:\\' + this.dataset.p)">Review plan</button></span></div>')
     for (const i of p.items.filter((x) => x.state === 'clinical_hold'))
       acts.push('<div class="acard"><span class="t">' + esc(shortTitle(i)) + '</span><span class="sub">clinical decision</span>' +
         '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="clearHold(this.dataset.id)">Confirm reviewed</button></span></div>')
@@ -875,14 +938,33 @@ function render(s) {
         : '<div class="acard"><span class="t">' + esc(shortTitle(i)) + '</span><span class="sub">external decision</span>' +
           '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="escalate(this.dataset.id)">Prepare escalation</button></span></div>')
     const tasks = p.items.map((i) => '<div class="lrow" data-id="' + i.id + '" onclick="itemStory(this.dataset.id)">' + chip(i.state) +
-      '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span><span>' + esc(i.title) + '</span>' +
+      '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span><span>' + esc(displayTitle(i)) + '</span>' +
       '<span style="margin-left:auto;color:var(--ink-3);font-size:11px">what the agent did &rsaquo;</span></div>').join('')
+    const fallback = p.items.some((i) => i.generated === 'fallback')
+    const pr = p.profile || {}
+    const factChip = (label, value, bad, src) => '<span class="fact' + (bad ? ' bad' : '') + '" title="' + esc(src) + '"><b>' + esc(label) + '</b> ' + esc(value) + '</span>'
+    const facts = [
+      factChip('Allergies', (pr.allergies || []).length ? pr.allergies.join(', ') : 'none recorded', !!(pr.allergies || []).length, 'GP record'),
+      ...(pr.facts || []).map((f) => factChip(f.label, f.value, f.bad, f.source)),
+      factChip('Clinician', pr.clinician || 'nobody assigned', !pr.clinician, 'hospital attendance'),
+      ...(pr.gp ? [factChip('GP', pr.gp, false, 'latest GP encounter')] : []),
+      ...((pr.prescriptions || []).map((r) => factChip('Rx', r.drug + ' · ' + r.status, false, 'pharmacy · ' + r.id))),
+    ].join('')
+    const own = pr.ownWords ? '<div class="own"><span class="speaker">In the patient\\'s own words</span>' +
+      '<blockquote>&ldquo;' + q(pr.ownWords.text) + '&rdquo;</blockquote>' +
+      (pr.ownWords.goal ? '<div class="goal">What matters to me: ' + esc(pr.ownWords.goal) + '</div>' : '') +
+      '<div class="src">GP record ' + esc(pr.ownWords.resourceId) + '</div></div>' : ''
+    const refuse = human.length && p.stage !== 'discharged'
+      ? '<div class="refuse">Homeward will not authorise discharge.<span>' + esc(human.map((i) => shortTitle(i)).join(', ')) +
+        (human.length === 1 ? ' remains a named human decision.' : ' remain named human decisions.') + '</span></div>' : ''
     return '<div class="hero"><div class="verdict ' + cls + '">' + head + '</div>' +
       '<div class="vsub">' + (ready ? p.items.length + ' of ' + p.items.length + ' verified · clinician decision remains'
-        : open + ' of ' + p.items.length + ' outstanding') +
-      ' · <a class="rlink" href="/receipt?patient=' + esc(p.patientId) + '">Receipt &darr;</a></div></div>' +
-      acts.join('') +
-      '<div class="ptable">' + tasks + '</div>'
+        : open + ' of ' + p.items.length + ' outstanding') + (note ? ' · ' + note : '') +
+      ' · <a class="rlink" href="/receipt?patient=' + esc(p.patientId) + '">Receipt &darr;</a></div>' +
+      (fallback ? '<div class="vwarn">&#9888; Drafted text on this patient used the canned fallback (model unavailable). Read it before relying on it.</div>' : '') +
+      '<div class="facts">' + facts + '</div></div>' +
+      acts.join('') + refuse +
+      '<div class="ptable">' + tasks + '</div>' + own
   }
 
   const graphView = () => (sel ? [sel] : []).map((p) => {
@@ -950,7 +1032,15 @@ function render(s) {
 
 
 }
-async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
+let lastText = ''
+async function tick() {
+  try {
+    const text = await (await fetch('/state')).text()
+    if (text === lastText) return
+    lastText = text
+    render(JSON.parse(text))
+  } catch {}
+}
 function itemStory(id) { openModal('item:' + id) }
 async function clearHold(id) { await fetch('/clear-hold?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
 async function approve() { await fetch('/approve', { method: 'POST' }); tick() }
