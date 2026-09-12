@@ -40,6 +40,8 @@ export interface Evidence {
   site: OwnerSite | 'patient-directory'
   /** Verbatim or lightly trimmed text shown to the user. */
   quote: string
+  /** Sim-time ms the underlying record was created — lets the UI say "3 days waiting". */
+  raisedAt?: number
 }
 
 /** What a resolver did, kept for the audit trail and for the verifier. */
@@ -70,6 +72,12 @@ export interface ChecklistItem {
   evidence: Evidence[]
   /** What the agent will do if approved — shown at the approval step. */
   proposedAction?: string
+  /**
+   * The concrete steps the resolver will take, then the check the verifier
+   * will make, in order — what staff review before approving. Written by
+   * resolve.ts so the plan is the code's own description of itself.
+   */
+  plan?: string[]
   approval?: { by: string; at: number }
   /** Resolver attempts so far; feeds the idempotency key so retries get fresh keys. */
   attempts?: number
@@ -86,12 +94,40 @@ export interface ChecklistItem {
   error?: string
 }
 
+/** A short fact for the patient banner: "eGFR 49 mL/min", "Home access not confirmed". */
+export interface PatientFact {
+  label: string
+  value: string
+  /** Out of range or a risk — shown in the alert colour. */
+  bad?: boolean
+  /** Where it was read from, e.g. "diagnostics · U&E report r-12". */
+  source: string
+}
+
+/** Record facts read once at load time for the banner and the "own words" card. */
+export interface PatientProfile {
+  birthDate?: string
+  /** Named clinician on the hospital attendance, if assigned. */
+  clinician?: string
+  /** Author of the most recent GP encounter note, if any. */
+  gp?: string
+  allergies: string[]
+  /** Active problems on the GP record. */
+  problems: string[]
+  /** The patient's own words from the GP "personal context" observation. */
+  ownWords?: { text: string; goal?: string; resourceId: string }
+  facts: PatientFact[]
+  /** Prescriptions visible to pharmacy for this patient. */
+  prescriptions: Array<{ id: string; drug: string; status: string }>
+}
+
 export interface PatientRow {
   patientId: string
   name: string
   conditions: string[]
   needs: string[]
   goals: string[]
+  profile?: PatientProfile
   /** Non-blocking observations from the model's reading of the record. */
   insights?: Array<{ title: string; quote: string }>
   /** hospital attendance stage: waiting | assessing | take | inpatient | discharged */

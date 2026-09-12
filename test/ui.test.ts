@@ -17,3 +17,10 @@ test('ward UI includes the four-state dependency graph and single expansion stat
   assert.match(PAGE, /dependency-graph/)
   assert.match(PAGE, /expandedPatientId === id \? null : id/)
 })
+
+test('ward UI explains states in words and keeps the wire detail behind a drop-down', () => {
+  assert.match(PAGE, /Show request/)
+  assert.match(PAGE, /details class="reqdd"/)
+  assert.match(PAGE, /nothing happens until staff approve it/)
+  assert.match(PAGE, /Only a clinician can clear this/)
+})

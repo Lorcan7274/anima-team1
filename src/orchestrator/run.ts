@@ -8,7 +8,7 @@
 import type { BoardState, ChecklistItem, OrchestratorContext, PatientRow } from './model.ts'
 import { isSettled } from './model.ts'
 import { detectForPatient, loadPatientRow } from './detect.ts'
-import { resolverFor } from './resolve.ts'
+import { planFor, resolverFor } from './resolve.ts'
 import { verifierFor } from './verify.ts'
 import type { SimClient } from '../sim/index.ts'
 
@@ -29,6 +29,7 @@ export async function detectAll(ctx: OrchestratorContext): Promise<void> {
     for (const item of fresh) {
       const existing = row.items.find((i) => i.id === item.id)
       if (!existing) {
+        item.plan = planFor(item)
         row.items.push(item)
         ctx.log(`detected [${item.owner}] ${item.title} (${item.patientId})`)
       }

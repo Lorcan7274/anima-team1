@@ -16,8 +16,10 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '../src/orchestrator/world.ts'
 import { approveAll, buildBoard, clearHold, detectAll, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
+import { refreshStage } from '../src/orchestrator/detect.ts'
 import type { OrchestratorContext } from '../src/orchestrator/model.ts'
 import { startUi } from '../src/ui/server.ts'
+import { annotate } from '../src/orchestrator/trace.ts'
 
 const arg = (name: string) => {
   const i = process.argv.indexOf(`--${name}`)
@@ -38,9 +40,10 @@ console.log(`world: ${worldName}`)
 const board: import('../src/orchestrator/model.ts').BoardState = { world: worldName, simNow: 0, patients: [], log: [], trace: [], phase: 'Joining the simulator world', busy: true }
 if (!flag('no-ui')) startUi(board)
 
-// Every simulator request lands in the board's trace — the compliance record.
+// Every simulator request lands in the board's trace — the compliance record —
+// annotated with the plain-language headline and outcome the UI shows.
 const { sim, world } = await joinWorld(worldName, (entry) => {
-  board.trace!.push(entry)
+  board.trace!.push(annotate(entry))
   if (board.trace!.length > 1000) board.trace!.shift()
 })
 const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }
@@ -144,8 +147,12 @@ if (flag('detect-only')) {
     approveAll(board, 'Auto-approval (headless run)')
   } else {
     console.log('\nwaiting for "Approve plan" in the UI (or re-run with --approve)...')
-    phase('Waiting for staff to approve the coordination plan', false)
-    while (board.patients.flatMap((p) => p.items).some((i) => i.state === 'proposed')) {
+    // The agent starts only once every patient's plan is approved, so name
+    // who is still outstanding — an approved patient otherwise looks stuck.
+    for (;;) {
+      const waiting = board.patients.filter((p) => p.items.some((i) => i.state === 'proposed'))
+      if (!waiting.length) break
+      phase(`Waiting for staff to approve the plan for ${waiting.map((p) => p.name).join(' and ')}`, false)
       await new Promise((r) => setTimeout(r, 2000))
     }
   }
@@ -176,8 +183,8 @@ if (flag('detect-only')) {
     if (p.stage === 'discharged') continue
     if (readyForDischarge(p)) {
       await dischargeAttendance(sim, p.patientId, 'Home with community support and monitoring')
-      p.stage = 'discharged'
-      p.dischargedAt = board.simNow
+      await refreshStage(sim, p) // the board must say what the hospital record now says
+      p.dischargedAt = board.simNow // story lane needs the moment the bed was freed
       ctx.log(`DISCHARGED ${p.name}`)
     } else {
       const open = p.items.filter((i) => i.state !== 'verified')
