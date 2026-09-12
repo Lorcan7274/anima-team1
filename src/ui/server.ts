@@ -20,12 +20,12 @@ const PAGE = `<!doctype html>
 <title>Homeward</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
 <style>
   :root{
     --page:#f9f9f7; --surface:#ffffff; --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
     --hairline:rgba(11,11,11,0.10); --grid:#e1e0d9;
-    --accent:#4a3aa7; --accent-soft:rgba(74,58,167,0.08);
+    --accent:#5266eb; --accent-soft:rgba(82,102,235,0.08);
     --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
     --radius:12px;
   }
@@ -38,9 +38,9 @@ const PAGE = `<!doctype html>
   .sidebar{background:var(--surface);border-right:1px solid var(--hairline);padding:20px 14px;
            display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh}
   .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px}
-  .brand .mark{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#4a3aa7,#7a63d8);
+  .brand .mark{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#5266eb,#7a8cf0);
                display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px}
-  .brand .name{font-weight:600;font-size:14px}
+  .brand .name{font-weight:480;font-size:14px}
   .brand .sub{font-size:11px;color:var(--ink-3)}
   .nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--ink-2);
             font-weight:500;cursor:pointer}
@@ -50,44 +50,44 @@ const PAGE = `<!doctype html>
   .sidebar .foot b{color:var(--ink-2);font-weight:600}
 
   .main{padding:28px 36px;max-width:1080px}
-  h1{font-size:22px;font-weight:600;letter-spacing:-0.01em}
+  h1{font-size:22px;font-weight:480;letter-spacing:0.01em}
   .subtitle{color:var(--ink-3);font-size:13px;margin-top:2px}
 
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
   .kpi{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 16px}
   .kpi .label{font-size:12px;color:var(--ink-3);font-weight:500}
-  .kpi .value{font-size:26px;font-weight:600;letter-spacing:-0.02em;margin-top:2px}
+  .kpi .value{font-size:26px;font-weight:530;letter-spacing:-0.01em;margin-top:2px}
   .kpi .hint{font-size:11px;color:var(--ink-3)}
 
   .card{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
         padding:18px 20px;margin-bottom:14px;box-shadow:0 1px 2px rgba(11,11,11,0.03)}
   .patient-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  .avatar{width:34px;height:34px;border-radius:50%;background:#eceaf6;color:var(--accent);
+  .avatar{width:34px;height:34px;border-radius:50%;background:rgba(82,102,235,0.10);color:var(--accent);
           display:grid;place-items:center;font-weight:600;font-size:13px;flex:none}
-  .patient-name{font-weight:600;font-size:15px}
+  .patient-name{font-weight:480;font-size:15px}
   .patient-meta{color:var(--ink-3);font-size:12px}
   .ready-pill{margin-left:auto;display:flex;align-items:center;gap:10px}
-  .ready-pill .count{font-size:12px;color:var(--ink-2);font-weight:500;white-space:nowrap}
+  .ready-pill .count{font-size:12px;color:var(--ink-2);font-weight:420;white-space:nowrap}
   .bar{width:120px;height:6px;border-radius:3px;background:var(--grid);overflow:hidden}
   .bar>i{display:block;height:100%;background:var(--good);border-radius:3px}
 
   .item{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-top:1px solid var(--grid)}
   .items{margin-top:12px}
   .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;
-        font-size:11px;font-weight:600;color:var(--ink-2);background:#f4f4f1;flex:none;min-width:92px;justify-content:center}
+        font-size:11px;font-weight:480;color:var(--ink-2);background:#f4f4f1;flex:none;min-width:92px;justify-content:center}
   .chip .dot{width:7px;height:7px;border-radius:50%;flex:none}
   .owner{font-size:11px;color:var(--ink-3);min-width:76px;font-weight:500;text-transform:capitalize}
-  .item .title{font-weight:500}
+  .item .title{font-weight:420}
   .evidence{color:var(--ink-3);font-size:12px;font-style:italic}
   .err{color:var(--critical);font-size:12px}
   .item .right{margin-left:auto;flex:none}
-  button.confirm{font:inherit;font-size:12px;font-weight:600;color:var(--accent);background:var(--surface);
-                 border:1px solid var(--accent);border-radius:8px;padding:4px 12px;cursor:pointer}
+  button.confirm{font:inherit;font-size:12px;font-weight:480;color:var(--accent);background:var(--surface);
+                 border:1px solid var(--accent);border-radius:999px;padding:4px 14px;cursor:pointer}
   button.confirm:hover{background:var(--accent-soft)}
 
   .escalation{margin-top:6px;padding:8px 10px;border:1px solid var(--hairline);border-left:3px solid var(--accent);
               border-radius:6px;font-size:12px;color:var(--ink-2);background:var(--accent-soft)}
-  .log-card h2{font-size:14px;font-weight:600;margin-bottom:10px}
+  .log-card h2{font-size:14px;font-weight:480;margin-bottom:10px}
   #log{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;
        display:flex;flex-direction:column-reverse;gap:4px;max-height:260px;overflow:auto}
   #log div{border-top:1px solid var(--grid);padding-top:4px}
