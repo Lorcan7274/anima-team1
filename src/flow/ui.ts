@@ -154,7 +154,7 @@ function ensureStations(lane, W) {
   }
 }
 // Layout one lane: returns nothing, moves figures in place.
-function layoutLane(laneId, people, stageOf, bedOf, W, now, live) {
+function layoutLane(laneId, people, stageOf, bedOf, W, now, live, forcedOf) {
   const lane = document.getElementById(laneId)
   ensureStations(lane, W)
   const width = lane.clientWidth || 1000
