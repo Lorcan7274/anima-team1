@@ -112,8 +112,8 @@ export const PAGE = `<!doctype html>
   .rail .card{padding:16px 18px}
   .rail h2,.log-card h2{font-size:13px;font-weight:480;margin-bottom:6px}
 
-  .patient-card{padding:0;overflow:hidden;transition:border-color .16s,box-shadow .16s}
-  .patient-card.expanded{border-color:rgba(82,102,235,0.28);box-shadow:0 8px 30px rgba(11,11,11,0.06)}
+  .patient-card{padding:0;overflow:hidden;transition:border-color .16s}
+  .patient-card.expanded{border-color:rgba(11,11,11,0.16)}
   .patient-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%;padding:16px 18px;
                 border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
   .patient-head:hover{background:#fbfbf9}
@@ -126,9 +126,9 @@ export const PAGE = `<!doctype html>
   .ready-pill .count{font-size:12px;color:var(--ink-2);font-weight:420;white-space:nowrap}
   .bar{width:110px;height:6px;border-radius:3px;background:var(--grid);overflow:hidden}
   .bar>i{display:block;height:100%;background:var(--good);border-radius:3px}
-  .chevron{width:26px;height:26px;border:1px solid var(--hairline);border-radius:50%;display:grid;place-items:center;
-           color:var(--ink-3);font-size:15px;line-height:1;transition:transform .16s,background .16s;flex:none}
-  .patient-card.expanded .chevron{transform:rotate(180deg);background:var(--accent-soft);color:var(--accent)}
+  .chevron{width:20px;height:20px;display:grid;place-items:center;color:var(--ink-3);font-size:14px;line-height:1;
+           transition:transform .16s,color .16s;flex:none}
+  .patient-card.expanded .chevron{transform:rotate(180deg);color:var(--ink)}
 
   .items{margin-top:12px}
   .item{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-top:1px solid var(--grid);cursor:pointer}
@@ -151,35 +151,29 @@ export const PAGE = `<!doctype html>
   .escalation{margin-top:6px;padding:8px 10px;border:1px solid var(--hairline);border-left:3px solid var(--accent);
               border-radius:6px;font-size:12px;color:var(--ink-2);background:var(--accent-soft)}
 
-  .graph-wrap{border-top:1px solid var(--grid);padding:14px 18px 20px;background:linear-gradient(180deg,#fcfcfa 0%,#fff 100%)}
+  .graph-wrap{border-top:1px solid var(--grid);padding:16px 18px 18px;background:var(--surface)}
   .graph-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:8px}
   .graph-title{font-size:12px;font-weight:480;color:var(--ink-2)}
   .legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--ink-3);font-size:10px}
   .legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
   .legend i{width:7px;height:7px;border-radius:50%;display:block}
-  .dependency-graph{height:500px;position:relative;isolation:isolate;overflow:hidden}
+  .dependency-graph{height:430px;position:relative;isolation:isolate;overflow:hidden}
   .dependency-lines{position:absolute;inset:0;width:100%;height:100%;z-index:0;overflow:visible}
-  .dependency-lines line{stroke-width:1.1;vector-effect:non-scaling-stroke;opacity:.42}
-  .patient-node{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;width:144px;height:144px;
-                border-radius:50%;background:var(--surface);border:2px solid var(--accent);box-shadow:0 10px 32px rgba(82,102,235,.14);
-                display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:16px}
-  .patient-node .patient-avatar{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);
-                                color:var(--accent);font-weight:530;margin-bottom:5px}
-  .patient-node b{font-size:13px;font-weight:530;max-width:108px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .patient-node small{font-size:10px;color:var(--ink-3);margin-top:2px}
-  .graph-node{--node-color:var(--ink-3);position:absolute;transform:translate(-50%,-50%);z-index:2;width:174px;min-height:78px;
-              border:1px solid color-mix(in srgb,var(--node-color) 48%,transparent);border-left:4px solid var(--node-color);
-              border-radius:9px;background:var(--surface);box-shadow:0 4px 16px rgba(11,11,11,.06);padding:9px 10px;
-              cursor:pointer;text-align:left;transition:transform .12s,box-shadow .12s,border-color .12s}
-  .graph-node:hover,.graph-node:focus-visible{transform:translate(-50%,-50%) scale(1.025);box-shadow:0 7px 22px rgba(11,11,11,.11);outline:none}
-  .graph-node .node-top{display:flex;align-items:center;justify-content:space-between;gap:7px;margin-bottom:4px}
+  .dependency-lines line{stroke-width:1;vector-effect:non-scaling-stroke;opacity:.26}
+  .graph-hub{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;width:58px;height:58px;
+             border-radius:50%;background:var(--surface);border:1px solid rgba(82,102,235,.52);display:grid;place-items:center}
+  .graph-hub .person{position:relative;width:11px;height:11px;border:1.5px solid var(--accent);border-radius:50%;margin-top:-9px}
+  .graph-hub .person:after{content:"";position:absolute;width:23px;height:12px;left:-7.5px;top:15px;border:1.5px solid var(--accent);
+                           border-bottom:0;border-radius:14px 14px 0 0}
+  .graph-node{--node-color:var(--ink-3);position:absolute;transform:translate(-50%,-50%);z-index:2;width:166px;min-height:62px;
+              border:1px solid var(--hairline);border-left:3px solid var(--node-color);border-radius:10px;background:var(--surface);
+              padding:10px 12px;cursor:pointer;text-align:left;transition:background .12s,border-color .12s}
+  .graph-node:hover,.graph-node:focus-visible{background:#fafaf8;border-color:rgba(11,11,11,.20);border-left-color:var(--node-color);outline:none}
+  .graph-node .node-top{display:flex;align-items:center;justify-content:space-between;gap:7px;margin-bottom:5px}
   .graph-node .node-owner{font-size:9px;font-weight:600;letter-spacing:.055em;text-transform:uppercase;color:var(--ink-3)}
-  .graph-node .node-status{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:480;color:var(--ink-2);white-space:nowrap}
-  .graph-node .node-status i{display:block;width:7px;height:7px;border-radius:50%;background:var(--node-color)}
-  .graph-node .node-title{font-size:11px;line-height:1.28;font-weight:480;display:-webkit-box;-webkit-line-clamp:2;
-                          -webkit-box-orient:vertical;overflow:hidden}
-  .graph-node .node-action{margin-top:6px;font:inherit;font-size:9px;font-weight:530;color:var(--accent);background:var(--accent-soft);
-                           border:0;border-radius:999px;padding:3px 8px;cursor:pointer}
+  .graph-node .node-title{font-size:12px;line-height:1.3;font-weight:480}
+  .graph-node .node-action{margin-top:7px;font:inherit;font-size:10px;font-weight:530;color:var(--accent);background:transparent;
+                           border:0;padding:0;cursor:pointer}
   .graph-node.not-started{--node-color:#a5a39c}
   .graph-node.in-progress{--node-color:var(--warning)}
   .graph-node.stuck{--node-color:var(--critical)}
@@ -190,8 +184,8 @@ export const PAGE = `<!doctype html>
   @media(max-width:900px){
     .app{grid-template-columns:1fr}.sidebar{display:none}.main{padding:22px 18px}.content{grid-template-columns:1fr}.rail{display:none}
     .kpis{grid-template-columns:repeat(2,1fr)}.dependency-graph{height:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:104px}
-    .dependency-lines{display:none}.patient-node{top:8px;transform:translateX(-50%);width:88px;height:88px;padding:8px}
-    .patient-node .patient-avatar{display:none}.graph-node{position:relative!important;left:auto!important;top:auto!important;transform:none!important;width:auto;min-height:72px}
+    .dependency-lines{display:none}.graph-hub{top:18px;transform:translateX(-50%)}
+    .graph-node{position:relative!important;left:auto!important;top:auto!important;transform:none!important;width:auto;min-height:62px}
   }
   @media(max-width:560px){.dependency-graph{grid-template-columns:1fr}.graph-toolbar{align-items:flex-start;flex-direction:column}.ready-pill .bar{display:none}}
 
@@ -293,7 +287,19 @@ function togglePatient(id) {
   expandedPatientId = expandedPatientId === id ? null : id
   if (lastState) render(lastState)
 }
-function graphForPatient(p, initials, done) {
+const taskTitle = (item) => {
+  const id = item.id.toLowerCase()
+  if (id.endsWith('clinical-hold')) return 'Clinical review'
+  if (id.endsWith('medicines')) return 'Discharge medicines'
+  if (id.endsWith('bloods')) return 'Blood monitoring'
+  if (id.endsWith('device')) return 'Home monitoring'
+  if (id.endsWith('visit')) return 'Home support visit'
+  if (id.endsWith('summary')) return 'Discharge summary'
+  if (id.endsWith('follow-up')) return 'GP follow-up'
+  if (id.endsWith('care-package')) return 'Care package'
+  return item.title
+}
+function graphForPatient(p) {
   const count = Math.max(p.items.length, 1)
   const positions = p.items.map((_, index) => {
     const angle = (-Math.PI / 2) + (index * Math.PI * 2 / count)
@@ -307,17 +313,18 @@ function graphForPatient(p, initials, done) {
   const nodes = p.items.map((i, index) => {
     const pos = positions[index]
     const state = graphState(i.state)
+    const label = taskTitle(i)
     const action = i.state === 'clinical_hold'
       ? '<button class="node-action" data-id="' + esc(i.id) + '" onclick="event.stopPropagation();clearHold(this.dataset.id)">Confirm reviewed</button>'
       : (i.state === 'blocked_human' && !i.escalation
         ? '<button class="node-action" data-id="' + esc(i.id) + '" onclick="event.stopPropagation();escalate(this.dataset.id)">Prepare escalation</button>'
         : '')
     return '<div class="graph-node ' + state.key + '" role="button" tabindex="0" data-id="' + esc(i.id) + '" ' +
+      'aria-label="' + q((OWNER_LABEL[i.owner] || i.owner) + ': ' + label + '. ' + state.label) + '" title="' + q(i.title) + '" ' +
       'style="left:' + pos.x.toFixed(2) + '%;top:' + pos.y.toFixed(2) + '%" ' +
       'onclick="itemStory(this.dataset.id)" onkeydown="if(event.keyCode===13||event.keyCode===32){event.preventDefault();itemStory(this.dataset.id)}">' +
-      '<div class="node-top"><span class="node-owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
-      '<span class="node-status"><i></i>' + state.label + '</span></div>' +
-      '<div class="node-title">' + esc(i.title) + '</div>' + action + '</div>'
+      '<div class="node-top"><span class="node-owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span></div>' +
+      '<div class="node-title">' + esc(label) + '</div>' + action + '</div>'
   }).join('')
   const insights = (p.insights || []).length
     ? '<div class="graph-insights"><b>Agent observations:</b> ' + p.insights.map((n) => esc(n.title)).join(' · ') + '</div>'
@@ -328,8 +335,7 @@ function graphForPatient(p, initials, done) {
     '<span><i style="background:var(--critical)"></i>Stuck</span>' +
     '<span><i style="background:var(--good)"></i>Completed</span></span></div>' +
     '<div class="dependency-graph"><svg class="dependency-lines" aria-hidden="true">' + lines + '</svg>' +
-    '<div class="patient-node"><span class="patient-avatar">' + initials + '</span><b>' + esc(p.name) + '</b>' +
-    '<small>' + done + ' of ' + p.items.length + ' completed</small></div>' + nodes + '</div>' + insights + '</div>'
+    '<div class="graph-hub" aria-hidden="true"><span class="person"></span></div>' + nodes + '</div>' + insights + '</div>'
 }
 const history = []
 const spark = () => {
@@ -548,7 +554,7 @@ function render(s) {
       (p.location ? ' · ' + esc(p.location) : '') + ' · ' + esc((p.conditions || []).join(', ')) + '</div></div>' +
       '<div class="ready-pill"><span class="count">' + done + ' of ' + p.items.length + ' verified</span>' +
       '<span class="bar"><i style="width:' + pct + '%"></i></span><span class="chevron" aria-hidden="true">⌄</span></div></button>' +
-      (expanded ? '<div id="patient-graph-' + esc(p.patientId) + '">' + graphForPatient(p, initials, done) + '</div>' : '') + '</section>'
+      (expanded ? '<div id="patient-graph-' + esc(p.patientId) + '">' + graphForPatient(p) + '</div>' : '') + '</section>'
   }).join('')
 
   document.getElementById('services').innerHTML = Object.entries(SERVICES).map(([key, name]) => {
