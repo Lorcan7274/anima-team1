@@ -410,11 +410,7 @@ export const PAGE = `<!doctype html>
     <div class="kpis" id="kpis"></div>
     <div id="actions"></div>
     <div class="viewbar">
-      <div class="seg" id="seg">
-        <button data-v="table" onclick="setView('table')">Table</button>
-        <button data-v="graph" onclick="setView('graph')">Graph</button>
-        <button data-v="list" onclick="setView('list')">List</button>
-      </div>
+      <span></span>
       <span class="legend"><span><i style="background:#a5a39c"></i>Not started</span><span><i style="background:var(--warning)"></i>In progress</span><span><i style="background:var(--critical)"></i>Stuck</span><span><i style="background:var(--good)"></i>Completed</span></span>
     </div>
     <div class="content">
@@ -774,7 +770,6 @@ function render(s) {
     initialExpansionSet = true
   }
   if (expandedPatientId && !s.patients.some((p) => p.patientId === expandedPatientId)) expandedPatientId = null
-  for (const b of document.querySelectorAll('#seg button')) b.classList.toggle('active', b.dataset.v === currentView)
 
   // --- searchable patient sidebar: green ready · red needs human · amber working ---
   if (!selectedPatient || !s.patients.some((p) => p.patientId === selectedPatient)) selectedPatient = (s.patients[0] || {}).patientId
@@ -865,7 +860,7 @@ function render(s) {
         '<span class="dot" style="background:' + needDot(i.state) + '"></span>' + esc(shortTitle(i)) + '</span>').join('') +
         (needs.length > 4 ? '<span class="need more">+' + (needs.length - 4) + ' more</span>' : '')
       const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
-      return '<div class="prow ' + st.sev + '" data-patient="' + esc(p.patientId) + '" onclick="expandedPatientId=this.dataset.patient;setView(\\'graph\\')">' +
+      return '<div class="prow ' + st.sev + '" data-patient="' + esc(p.patientId) + '" onclick="selectedPatient=this.dataset.patient;render(lastState)">' +
         '<div class="pcol"><div class="avatar">' + initials + '</div><div style="min-width:0"><div class="nm">' + esc(p.name) + '</div>' +
         '<div class="sub">' + esc(p.patientId) + (p.location ? ' · ' + esc(p.location) : '') + '</div></div></div>' +
         '<div><span class="schip ' + st.cls + '"><span class="dot" style="background:currentColor"></span>' + st.label + '</span>' +
@@ -886,8 +881,7 @@ function render(s) {
         '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span><span>' + esc(i.title) +
         ((i.evidence || [])[0] ? ' <span class="q">&ldquo;' + q(i.evidence[0].quote) + '&rdquo;</span> <span class="tag rec">record</span>' : '') + '</span></div>').join('') + '</div>'
   }).join('')
-  document.getElementById('board').innerHTML =
-    heroFor(sel) + (currentView === 'table' ? tableView() : currentView === 'list' ? listView() : graphView())
+  document.getElementById('board').innerHTML = heroFor(sel) + tableView()
 
 
   renderRailTrace(s)
