@@ -378,7 +378,7 @@ setInterval(tick, 1500); tick()
 </script></body></html>`
 
 export function startUi(board: BoardState, port = 4600): void {
-  createServer((req, res) => {
+  const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.pathname === '/state') {
       res.setHeader('content-type', 'application/json')
@@ -400,11 +400,11 @@ export function startUi(board: BoardState, port = 4600): void {
       res.end(PAGE)
     }
   })
-    .once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        console.error(`port ${port} is already in use — another Homeward run is open. Close it (Ctrl-C) or open http://localhost:${port} for the existing one.`)
-      } else throw err
-    })
-    .listen(port)
-  console.log(`ward list: http://localhost:${port}`)
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`port ${port} is busy (an older run?) — retrying every 2s; this run's UI will take over as soon as it frees up`)
+      setTimeout(() => server.listen(port), 2000)
+    } else throw err
+  })
+  server.listen(port, () => console.log(`ward list: http://localhost:${port}`))
 }
