@@ -139,6 +139,27 @@ export const PAGE = `<!doctype html>
             font-weight:420;cursor:pointer}
   .nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:480}
   .nav-item:hover:not(.active){background:#f4f4f1}
+  .psearch{margin:2px 4px 10px;padding:7px 12px;font:inherit;font-size:12px;border:1px solid var(--grid);
+           border-radius:8px;width:calc(100% - 8px);background:#fbfbf9;color:var(--ink)}
+  .psearch:focus{outline:none;border-color:var(--accent)}
+  .plist-label{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);
+               padding:4px 10px 6px}
+  .pat{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;border-left:3px solid transparent}
+  .pat:hover{background:#f4f4f1}
+  .pat.sel{background:var(--accent-soft);border-left-color:var(--accent)}
+  .pat .avatar{width:28px;height:28px;font-size:11px}
+  .pat .pn{font-size:13px;font-weight:480;line-height:1.2}
+  .pat .pm{font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pat .pdot{margin-left:auto;width:9px;height:9px;border-radius:50%;flex:none}
+  .hero{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
+        padding:18px 20px;margin-bottom:14px;box-shadow:0 1px 2px rgba(11,11,11,0.03)}
+  .hero .q{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
+  .hero h2{font-size:20px;font-weight:480;margin:2px 0 10px}
+  .hero .verdict{font-size:22px;font-weight:530;letter-spacing:-0.01em}
+  .hero .verdict.no{color:var(--critical)}
+  .hero .verdict.yes{color:var(--good)}
+  .hero .vsub{font-size:13.5px;font-weight:480;margin-top:4px}
+  .hero .vwhat{font-size:13px;color:var(--ink-2);margin-top:6px;line-height:1.55}
   .sidebar .foot{margin-top:auto;padding:10px;font-size:12px;color:var(--ink-3);border-top:1px solid var(--grid)}
   .sidebar .foot b{color:var(--ink-2);font-weight:480}
 
@@ -295,6 +316,16 @@ export const PAGE = `<!doctype html>
   }
   @media(max-width:560px){.dependency-graph{grid-template-columns:1fr}.graph-toolbar{align-items:flex-start;flex-direction:column}.ready-pill .bar{display:none}}
 
+  #actions{display:flex;flex-direction:column;gap:8px;margin:0 0 14px}
+  .acard{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--hairline);
+         border-left:4px solid var(--accent);border-radius:var(--radius);padding:12px 16px;
+         box-shadow:0 1px 2px rgba(11,11,11,0.03)}
+  .acard .who{font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+              color:var(--accent);background:var(--accent-soft);border-radius:4px;padding:2px 7px;flex:none}
+  .acard .t{font-weight:480;font-size:14px}
+  .acard .sub{font-size:12px;color:var(--ink-3)}
+  .acard .act{margin-left:auto;flex:none}
+  .acard.done{border-left-color:var(--good);color:var(--ink-2)}
   .viewbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 14px}
   .seg{display:inline-flex;background:#efeeea;border-radius:999px;padding:3px}
   .seg button{font:inherit;font-size:12px;font-weight:480;border:none;background:transparent;border-radius:999px;
@@ -363,18 +394,21 @@ export const PAGE = `<!doctype html>
   <aside class="sidebar">
     <div class="brand"><div class="mark">H</div>
       <div><div class="name">Homeward</div><div class="sub">discharge coordination</div></div></div>
-    <div class="nav-item active">Ward round</div>
+    <input class="psearch" id="psearch" type="search" placeholder="Find a patient or SIM number"
+           oninput="patFilter=this.value;render(lastState)">
+    <div class="plist-label" id="plistLabel">Patients</div>
+    <div id="plist"></div>
+    <div style="height:10px"></div>
     <div class="nav-item" onclick="openModal('trace')">Full trace</div>
     <div class="foot">world <b id="world">—</b><br>sim clock <b id="clock">—</b></div>
   </aside>
   <main class="main">
     <div class="header">
-      <div><h1>Ward round</h1>
-        <div class="subtitle">Barriers detected from the record · resolved in the owning service · verified after time moves</div></div>
+      <div><h1>Ward round</h1></div>
       <span id="status"></span>
-      <button class="primary" id="approveBtn" style="display:none" onclick="approve()">Approve plan</button>
     </div>
     <div class="kpis" id="kpis"></div>
+    <div id="actions"></div>
     <div class="viewbar">
       <div class="seg" id="seg">
         <button data-v="table" onclick="setView('table')">Table</button>
@@ -441,7 +475,9 @@ const GRAPH_STATE = {
   verified:              { key: 'completed', label: 'Completed', color: 'var(--good)' },
 }
 const graphState = (state) => GRAPH_STATE[state] || GRAPH_STATE.proposed
-let currentView = 'table'
+let currentView = 'graph'
+let selectedPatient = null
+let patFilter = ''
 function setView(v) { currentView = v; if (lastState) render(lastState) }
 const SHORT = {
   'clinical-hold': 'Clinical review', medicines: 'Discharge medicines', bloods: 'Blood monitoring',
@@ -716,9 +752,23 @@ function render(s) {
   if (openKey) renderModal()
 
   const proposed = all.filter((i) => i.state === 'proposed').length
-  const btn = document.getElementById('approveBtn')
-  btn.style.display = proposed ? '' : 'none'
-  btn.textContent = 'Approve plan (' + proposed + ')'
+  const pname = (id) => { const p0 = s.patients.find((x) => x.items.some((i) => i.id === id)); return p0 ? p0.name : '' }
+  const acards = []
+  if (proposed) acards.push('<div class="acard"><span class="who">You</span>' +
+    '<span class="t">Approve the coordination plan</span><span class="sub">' + proposed + ' operational actions — the agent will not act until you approve</span>' +
+    '<span class="act"><button class="primary" onclick="approve()">Approve ' + proposed + ' actions</button></span></div>')
+  for (const i of all.filter((x) => x.state === 'clinical_hold'))
+    acards.push('<div class="acard"><span class="who">You</span>' +
+      '<span class="t">' + esc(shortTitle(i)) + ' — ' + esc(pname(i.id)) + '</span><span class="sub">clinical decision, never automated</span>' +
+      '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="clearHold(this.dataset.id)">Confirm reviewed</button></span></div>')
+  for (const i of all.filter((x) => x.state === 'blocked_human'))
+    acards.push(i.escalation
+      ? '<div class="acard done"><span class="who" style="color:var(--good);background:rgba(12,163,12,0.10)">Sent</span>' +
+        '<span class="t">' + esc(shortTitle(i)) + ' — ' + esc(pname(i.id)) + '</span><span class="sub">escalated to ' + esc(i.escalation.responsibleTeam) + ' · case stays blocked until they decide</span></div>'
+      : '<div class="acard"><span class="who">You</span>' +
+        '<span class="t">' + esc(shortTitle(i)) + ' — ' + esc(pname(i.id)) + '</span><span class="sub">external decision the agent must not make</span>' +
+        '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="escalate(this.dataset.id)">Prepare escalation</button></span></div>')
+  document.getElementById('actions').innerHTML = acards.join('')
 
   if (!initialExpansionSet && s.patients.length) {
     expandedPatientId = s.patients[0].patientId
@@ -726,11 +776,62 @@ function render(s) {
   }
   if (expandedPatientId && !s.patients.some((p) => p.patientId === expandedPatientId)) expandedPatientId = null
   for (const b of document.querySelectorAll('#seg button')) b.classList.toggle('active', b.dataset.v === currentView)
-  const graphView = () => s.patients.map((p) => {
+
+  // --- searchable patient sidebar: green ready · red needs human · amber working ---
+  if (!selectedPatient || !s.patients.some((p) => p.patientId === selectedPatient)) selectedPatient = (s.patients[0] || {}).patientId
+  const dotFor = (p) => {
+    const ready = p.items.length && p.items.every((i) => i.state === 'verified')
+    if (ready) return 'var(--good)'
+    if (p.items.some((i) => ['clinical_hold', 'blocked_human', 'failed'].includes(i.state))) return 'var(--critical)'
+    if (p.items.some((i) => ['approved', 'resolving', 'awaiting_verification'].includes(i.state))) return 'var(--warning)'
+    return '#a5a39c'
+  }
+  const flt = patFilter.trim().toLowerCase()
+  const shown = s.patients.filter((p) => !flt || p.name.toLowerCase().includes(flt) || p.patientId.toLowerCase().includes(flt))
+  document.getElementById('plistLabel').textContent = 'Patients · ' + shown.length
+  document.getElementById('plist').innerHTML = shown.map((p) => {
+    const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
+    return '<div class="pat' + (p.patientId === selectedPatient ? ' sel' : '') + '" data-p="' + esc(p.patientId) + '" ' +
+      'onclick="selectedPatient=this.dataset.p;render(lastState)">' +
+      '<div class="avatar">' + initials + '</div><div style="min-width:0"><div class="pn">' + esc(p.name) + '</div>' +
+      '<div class="pm">' + esc(p.patientId) + (p.location ? ' · ' + esc(p.location) : '') + '</div></div>' +
+      '<span class="pdot" style="background:' + dotFor(p) + '"></span></div>'
+  }).join('')
+  const sel = s.patients.find((p) => p.patientId === selectedPatient)
+
+  // --- "Can they go home?" verdict for the selected patient ---
+  const heroFor = (p) => {
+    if (!p) return ''
+    const first = esc(p.name.split(' ')[0])
+    const human = p.items.filter((i) => ['clinical_hold', 'blocked_human'].includes(i.state))
+    const failed = p.items.filter((i) => i.state === 'failed')
+    const ops = p.items.filter((i) => !['verified', 'clinical_hold', 'blocked_human', 'failed'].includes(i.state))
+    const ready = p.items.length && p.items.every((i) => i.state === 'verified')
+    const names = (a) => a.map((i) => shortTitle(i).toLowerCase().replace(/^gp /, 'GP ')).join(', ')
+    let what = ''
+    if (!ready) {
+      if (ops.length) what += 'I can progress ' + names(ops) + '. '
+      if (human.length) what += 'I cannot decide ' + names(human) + ' — that needs a person. '
+      if (failed.length) what += names(failed).replace(/^./, (c) => c.toUpperCase()) + ' failed and needs attention. '
+      if (!ops.length && !human.length && !failed.length) what = 'Verification in progress.'
+    } else {
+      what = 'All arrangements executed and independently verified. Final discharge is the clinician\\'s decision.'
+    }
+    const open = p.items.filter((i) => i.state !== 'verified').length
+    return '<div class="hero"><div class="q">Homeward discharge rehearsal</div>' +
+      '<h2>Can ' + first + ' safely go home today?</h2>' +
+      (ready
+        ? '<div class="verdict yes">Yes — operationally ready</div><div class="vsub">' + p.items.length + ' of ' + p.items.length + ' dependencies verified.</div>'
+        : '<div class="verdict no">No — not yet</div><div class="vsub">' + open + ' of ' + p.items.length + ' dependencies outstanding' +
+          (human.length ? ' — ' + human.length + (human.length === 1 ? ' requires' : ' require') + ' a person' : '') + '.</div>') +
+      '<div class="vwhat">' + what + '</div></div>'
+  }
+
+  const graphView = () => (sel ? [sel] : []).map((p) => {
     const done = p.items.filter((i) => i.state === 'verified').length
     const pct = p.items.length ? Math.round((100 * done) / p.items.length) : 0
     const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
-    const expanded = expandedPatientId === p.patientId
+    const expanded = true
     return '<section class="card patient-card' + (expanded ? ' expanded' : '') + '">' +
       '<button type="button" class="patient-head" data-patient="' + esc(p.patientId) + '" aria-expanded="' + expanded + '" ' +
       'aria-controls="patient-graph-' + esc(p.patientId) + '" onclick="togglePatient(this.dataset.patient)">' +
@@ -778,7 +879,7 @@ function render(s) {
     }).join('')
     return '<div class="ptable"><div class="phead"><span>Patient</span><span>Discharge status</span><span>What it still needs</span><span>Verified</span></div>' + rows + '</div>'
   }
-  const listView = () => s.patients.map((p) => {
+  const listView = () => (sel ? [sel] : []).map((p) => {
     const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
     return '<div class="ptable"><div class="lrow" style="cursor:default"><div class="avatar">' + initials + '</div>' +
       '<span class="nm" style="font-weight:480">' + esc(p.name) + '</span><span class="sub" style="color:var(--ink-3);font-size:11.5px">' +
@@ -788,7 +889,7 @@ function render(s) {
         ((i.evidence || [])[0] ? ' <span class="q">&ldquo;' + q(i.evidence[0].quote) + '&rdquo;</span> <span class="tag rec">record</span>' : '') + '</span></div>').join('') + '</div>'
   }).join('')
   document.getElementById('board').innerHTML =
-    currentView === 'table' ? tableView() : currentView === 'list' ? listView() : graphView()
+    heroFor(sel) + (currentView === 'table' ? tableView() : currentView === 'list' ? listView() : graphView())
 
   document.getElementById('services').innerHTML = Object.entries(SERVICES).map(([key, name]) => {
     const n = all.filter((i) => i.owner === key && i.state !== 'verified').length
