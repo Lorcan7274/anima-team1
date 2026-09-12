@@ -6,7 +6,16 @@
  */
 
 /** Service workspaces exposed under /api/sites/{site}. */
-export type Site = 'gp' | 'hospital' | 'pharmacy' | 'patient'
+export type Site =
+  | 'control'
+  | 'gp'
+  | 'hospital'
+  | 'community'
+  | 'pharmacy'
+  | 'diagnostics'
+  | 'referrals'
+  | 'wearables'
+  | 'patient'
 
 /** NHS-shaped adapters exposed under /api/nhs/{adapter}. */
 export type NhsAdapter =
@@ -23,7 +32,16 @@ export type NhsAdapter =
   | 'radiology'
   | 'appointments'
 
-export const SITES: readonly Site[] = ['gp', 'hospital', 'pharmacy', 'patient']
+export const SITES: readonly Site[] = [
+  'gp',
+  'hospital',
+  'community',
+  'pharmacy',
+  'diagnostics',
+  'referrals',
+  'wearables',
+  'patient',
+]
 
 export const NHS_ADAPTERS: readonly NhsAdapter[] = [
   'pds',
@@ -123,11 +141,50 @@ export interface ClockState extends Json {
 }
 
 /**
- * Body for POST /api/clock. The explorer describes it as "pause, change speed
- * or advance the team world"; the exact field names come from the OpenAPI
- * document, so this stays open-ended.
+ * Body for POST /api/clock (confirmed against /api/openapi.json).
+ * advanceMinutes is 0..10080 (7 days) per call; time cannot go backwards.
  */
-export type ClockChange = Json
+export interface ClockChange extends Json {
+  paused?: boolean
+  /** 0..3600 simulated seconds per real second. */
+  speed?: number
+  /** 0..10080 minutes to jump forward. */
+  advanceMinutes?: number
+}
+
+// --- Wearables (confirmed against live /api/sites/wearables/view) ---------
+
+/** Metrics observed so far; the API may add more. */
+export type WearableMetric = 'steps' | 'heart-rate' | 'sleep' | (string & {})
+
+export interface WearableObservationData extends Json {
+  metric: WearableMetric
+  value: number
+  unit: string
+  quality?: string
+  /** Epoch milliseconds in simulation time. */
+  observedAt: number
+  /** Personal baseline; only set on derived trend/alert observations. */
+  baseline?: number | null
+}
+
+export interface WearableObservation extends SiteResource {
+  kind: 'observation'
+  patientId: string
+  data: WearableObservationData
+}
+
+export interface WearableDeviceData extends Json {
+  battery?: number
+  quality?: string
+  metric?: WearableMetric
+}
+
+export interface WearableDevice extends SiteResource {
+  kind: 'device'
+  patientId: string
+  data: WearableDeviceData
+}
 
 // --- Discovery ------------------------------------------------------------
 

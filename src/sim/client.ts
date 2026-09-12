@@ -15,6 +15,8 @@ import type {
   SiteActionResult,
   SiteView,
   TeamInfo,
+  WearableDevice,
+  WearableObservation,
 } from './types.ts'
 
 export interface SimClientOptions extends Omit<HttpClientOptions, 'token'> {
@@ -119,6 +121,73 @@ export class SimClient {
   /** Convenience wrapper for the documented create_task action. */
   createTask(site: Site, patientId: string, title: string, idempotencyKey?: string, extra: Json = {}) {
     return this.siteAction(site, { type: 'create_task', patientId, title, ...extra }, idempotencyKey)
+  }
+
+  /** connect_device on the wearables site: issues a monitoring device to a patient. */
+  connectDevice(patientId: string, title = 'Home activity watch', idempotencyKey?: string) {
+    return this.siteAction('wearables', { type: 'connect_device', patientId, title }, idempotencyKey)
+  }
+
+  /** All wearable observations and devices, optionally for one patient. */
+  async wearables(patientId?: string) {
+    const view = await this.siteView('wearables', {
+      limit: 500,
+      ...(patientId ? { patient: patientId } : {}),
+    })
+    const resources = view.resources ?? []
+    return {
+      view,
+      devices: resources.filter((r) => r.kind === 'device') as WearableDevice[],
+      observations: resources.filter((r) => r.kind === 'observation') as WearableObservation[],
+    }
+  }
+
+  /** order_test with a structured blood test order (panels: fbc, ue, hba1c, lft, crp, lipids). */
+  orderBloodTest(
+    site: Site,
+    patientId: string,
+    title: string,
+    order: {
+      panelId?: 'fbc' | 'ue' | 'hba1c' | 'lft' | 'crp' | 'lipids'
+      panel: string
+      specimen: string
+      priority: 'routine' | 'urgent'
+      collection: 'now' | 'next-round'
+      clinicalDetails: string
+    },
+    idempotencyKey?: string,
+  ) {
+    return this.siteAction(site, { type: 'order_test', patientId, title, bloodTestOrder: order }, idempotencyKey)
+  }
+
+  /** create_referral from a site (e.g. GP -> community physio/prehab). */
+  createReferral(site: Site, patientId: string, title: string, extra: Json = {}, idempotencyKey?: string) {
+    return this.siteAction(site, { type: 'create_referral', patientId, title, ...extra }, idempotencyKey)
+  }
+
+  /** send_message with a messaging command (create -> sms/email conversation with the patient). */
+  sendPatientMessage(
+    site: Site,
+    patientId: string,
+    subject: string,
+    body: string,
+    channel: 'sms' | 'email' = 'sms',
+    idempotencyKey?: string,
+  ) {
+    return this.siteAction(
+      site,
+      {
+        type: 'send_message',
+        patientId,
+        messagingCommand: { kind: 'create', subject, body, channel, allowReply: true },
+      },
+      idempotencyKey,
+    )
+  }
+
+  /** Jump the world forward; advanceMinutes caps at 10080 (7 days) per call. Time never goes backwards. */
+  advanceClock(minutes: number, keep: { paused?: boolean; speed?: number } = { paused: true }) {
+    return this.changeClock({ ...keep, advanceMinutes: Math.min(minutes, 10080) })
   }
 
   /** GET /api/sites/{site}/appointments: a day of appointments and sessions. */
