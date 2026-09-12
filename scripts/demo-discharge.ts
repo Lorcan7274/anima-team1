@@ -14,7 +14,7 @@
  * Stage demo: run with a brand-new unguessable world minutes before demoing.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '../src/orchestrator/world.ts'
+import { connectWorld, joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '../src/orchestrator/world.ts'
 import { approveAll, buildBoard, clearHold, detectAll, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
 import { refreshStage } from '../src/orchestrator/detect.ts'
 import type { OrchestratorContext } from '../src/orchestrator/model.ts'
@@ -42,10 +42,25 @@ if (!flag('no-ui')) startUi(board)
 
 // Every simulator request lands in the board's trace — the compliance record —
 // annotated with the plain-language headline and outcome the UI shows.
-const { sim, world } = await joinWorld(worldName, (entry) => {
+const traceHook = (entry: import('../src/sim/http.ts').TraceEntry) => {
   board.trace!.push(annotate(entry))
   if (board.trace!.length > 1000) board.trace!.shift()
-})
+}
+// /api/keys is the sim's most fragile endpoint. Avoid it whenever a key is
+// already known: the --key flag, or the key saved in this world's snapshot.
+let savedKey: string | undefined
+if (existsSync('fallback-board.json')) {
+  try {
+    const snap = JSON.parse(readFileSync('fallback-board.json', 'utf8'))
+    if (snap.world === worldName && snap.apiKey) savedKey = snap.apiKey
+  } catch { /* unreadable snapshot */ }
+}
+const directKey = arg('key') ?? savedKey
+const { sim, world } = directKey
+  ? connectWorld(worldName, directKey, traceHook)
+  : await joinWorld(worldName, traceHook)
+if (directKey) console.log('connected with known key — /api/keys skipped')
+;(board as { apiKey?: string }).apiKey = (sim as { apiKey?: string }).apiKey
 const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }
 // Surface fatal errors on the page instead of leaving a dead tab.
 const fatal = (err: unknown) => {

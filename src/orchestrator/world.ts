@@ -18,6 +18,15 @@ export function randomWorldName(): string {
   return `discharge-${randomBytes(6).toString('hex')}`
 }
 
+/** Connect with a known key — no /api/keys call. The outage-proof path. */
+export function connectWorld(
+  worldName: string,
+  apiKey: string,
+  trace?: (entry: TraceEntry) => void,
+): { sim: SimClient; world: string } {
+  return { sim: new SimClient({ origin: ORIGIN, apiKey, trace }), world: worldName }
+}
+
 export async function joinWorld(
   worldName: string,
   trace?: (entry: TraceEntry) => void,
