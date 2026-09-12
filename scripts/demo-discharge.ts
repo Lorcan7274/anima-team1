@@ -58,7 +58,11 @@ if (existsSync('fallback-board.json')) {
 const directKey = arg('key') ?? savedKey
 const { sim, world } = directKey
   ? connectWorld(worldName, directKey, traceHook)
-  : await joinWorld(worldName, traceHook)
+  : await joinWorld(worldName, traceHook, 3, (attempt, err) => {
+      board.phase = `Joining the simulator world: no answer yet (attempt ${attempt} of 3; a fresh world can take a minute or two to seed)`
+      board.log.push(`retrying /api/keys after: ${String((err as Error).message).slice(0, 120)}`)
+      console.log(`  /api/keys did not answer (attempt ${attempt}); retrying`)
+    })
 if (directKey) console.log('connected with known key, /api/keys skipped')
 ;(board as { apiKey?: string }).apiKey = (sim as { apiKey?: string }).apiKey
 const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }

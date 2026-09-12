@@ -79,8 +79,14 @@ export class SimClient {
    * POST /api/keys: create or join a team world by name. Repeating the same
    * name returns the same world and key. Does not need an existing key.
    */
-  async createTeam(teamName: string): Promise<CreateTeamResponse> {
-    return this.http.post<CreateTeamResponse>('/api/keys', { teamName }, { token: null })
+  /**
+   * POST /api/keys. Creating a fresh world seeds eight attendances and their
+   * records, which the simulator can take well over a minute to do, so this
+   * call gets a longer timeout than the rest (SIM_KEYS_TIMEOUT_MS, default
+   * 180000). Re-posting the same team name returns the same key.
+   */
+  async createTeam(teamName: string, timeoutMs = Number(process.env.SIM_KEYS_TIMEOUT_MS || 180_000)): Promise<CreateTeamResponse> {
+    return this.http.post<CreateTeamResponse>('/api/keys', { teamName }, { token: null, timeoutMs })
   }
 
   /** GET /api/team: the authenticated team and its scopes. */
