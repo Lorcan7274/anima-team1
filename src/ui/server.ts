@@ -295,6 +295,41 @@ export const PAGE = `<!doctype html>
   }
   @media(max-width:560px){.dependency-graph{grid-template-columns:1fr}.graph-toolbar{align-items:flex-start;flex-direction:column}.ready-pill .bar{display:none}}
 
+  .viewbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 14px}
+  .seg{display:inline-flex;background:#efeeea;border-radius:999px;padding:3px}
+  .seg button{font:inherit;font-size:12px;font-weight:480;border:none;background:transparent;border-radius:999px;
+              padding:5px 16px;cursor:pointer;color:var(--ink-2)}
+  .seg button.active{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(11,11,11,0.10)}
+  .ptable{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);overflow:hidden;
+          box-shadow:0 1px 2px rgba(11,11,11,0.03);margin-bottom:14px}
+  .phead,.prow{display:grid;grid-template-columns:230px 230px 1fr 120px;gap:14px;padding:12px 18px;align-items:center}
+  .phead{font-size:10.5px;font-weight:480;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);
+         border-bottom:1px solid var(--grid);padding:10px 18px}
+  .prow{border-top:1px solid var(--grid);border-left:3px solid transparent;cursor:pointer}
+  .prow:first-of-type{border-top:none}
+  .prow:hover{background:#fbfbf9}
+  .prow.sev-bad{border-left-color:var(--critical)}
+  .prow.sev-warn{border-left-color:var(--warning)}
+  .prow.sev-good{border-left-color:var(--good)}
+  .pcol{display:flex;align-items:center;gap:10px;min-width:0}
+  .pcol .nm{font-weight:480;font-size:14px}
+  .pcol .sub{font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .schip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 11px;font-size:12px;font-weight:480}
+  .schip .dot{width:7px;height:7px;border-radius:50%}
+  .schip.bad{background:rgba(208,59,59,0.08);color:#a32f2f}
+  .schip.warn{background:rgba(250,178,25,0.12);color:#7a5605}
+  .schip.good{background:rgba(12,163,12,0.10);color:#0a7a0a}
+  .schip.plain{background:#f4f4f1;color:var(--ink-2)}
+  .need{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--grid);border-radius:999px;
+        padding:2px 10px;font-size:11.5px;color:var(--ink-2);background:var(--surface);margin:2px 6px 2px 0;white-space:nowrap}
+  .need .dot{width:6px;height:6px;border-radius:50%}
+  .need:hover{border-color:rgba(11,11,11,0.22)}
+  .need .more{color:var(--ink-3)}
+  .rlink{font-size:11px;color:var(--ink-3);text-decoration:none;border-bottom:1px dotted var(--grid)}
+  .rlink:hover{color:var(--accent)}
+  .lrow{display:flex;align-items:baseline;gap:10px;padding:10px 18px;border-top:1px solid var(--grid);cursor:pointer;background:var(--surface)}
+  .lrow:hover{background:#fbfbf9}
+  .lrow .q{color:var(--ink-2);font-size:12px}
   .svc{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--grid)}
   .svc:first-of-type{border-top:none}
   .svc .ic{width:28px;height:28px;border-radius:50%;background:rgba(82,102,235,0.10);color:var(--accent);
@@ -340,6 +375,14 @@ export const PAGE = `<!doctype html>
       <button class="primary" id="approveBtn" style="display:none" onclick="approve()">Approve plan</button>
     </div>
     <div class="kpis" id="kpis"></div>
+    <div class="viewbar">
+      <div class="seg" id="seg">
+        <button data-v="table" onclick="setView('table')">Table</button>
+        <button data-v="graph" onclick="setView('graph')">Graph</button>
+        <button data-v="list" onclick="setView('list')">List</button>
+      </div>
+      <span class="legend"><span><i style="background:#a5a39c"></i>Not started</span><span><i style="background:var(--warning)"></i>In progress</span><span><i style="background:var(--critical)"></i>Stuck</span><span><i style="background:var(--good)"></i>Completed</span></span>
+    </div>
     <div class="content">
       <div id="board"></div>
       <div class="rail">
@@ -398,6 +441,18 @@ const GRAPH_STATE = {
   verified:              { key: 'completed', label: 'Completed', color: 'var(--good)' },
 }
 const graphState = (state) => GRAPH_STATE[state] || GRAPH_STATE.proposed
+let currentView = 'table'
+function setView(v) { currentView = v; if (lastState) render(lastState) }
+const SHORT = {
+  'clinical-hold': 'Clinical review', medicines: 'Discharge medicines', bloods: 'Blood monitoring',
+  device: 'Home monitoring', visit: 'Home support visit', summary: 'Discharge summary',
+  'follow-up': 'GP follow-up', 'care-package': 'Care package funding',
+}
+const shortTitle = (i) => { const e = Object.entries(SHORT).find(([k]) => i.id.endsWith('-' + k)); return e ? e[1] : i.title.slice(0, 28) }
+const needDot = (st) =>
+  st === 'failed' ? 'var(--critical)' :
+  st === 'blocked_human' || st === 'clinical_hold' ? 'var(--accent)' :
+  ['approved', 'resolving', 'awaiting_verification'].includes(st) ? 'var(--warning)' : '#a5a39c'
 let expandedPatientId = null
 let initialExpansionSet = false
 function togglePatient(id) {
@@ -670,7 +725,8 @@ function render(s) {
     initialExpansionSet = true
   }
   if (expandedPatientId && !s.patients.some((p) => p.patientId === expandedPatientId)) expandedPatientId = null
-  document.getElementById('board').innerHTML = s.patients.map((p) => {
+  for (const b of document.querySelectorAll('#seg button')) b.classList.toggle('active', b.dataset.v === currentView)
+  const graphView = () => s.patients.map((p) => {
     const done = p.items.filter((i) => i.state === 'verified').length
     const pct = p.items.length ? Math.round((100 * done) / p.items.length) : 0
     const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
@@ -686,6 +742,53 @@ function render(s) {
       '<span class="bar"><i style="width:' + pct + '%"></i></span><span class="chevron" aria-hidden="true">⌄</span></div></button>' +
       (expanded ? '<div id="patient-graph-' + esc(p.patientId) + '">' + graphForPatient(p) + '</div>' : '') + '</section>'
   }).join('')
+
+  const patientStatus = (p) => {
+    const holds = p.items.filter((i) => i.state === 'clinical_hold' || i.state === 'blocked_human')
+    const failed = p.items.some((i) => i.state === 'failed')
+    const ready = p.items.length && p.items.every((i) => i.state === 'verified')
+    const working = p.items.some((i) => ['approved', 'resolving', 'awaiting_verification'].includes(i.state))
+    if (ready) return { cls: 'good', sev: 'sev-good', label: 'Ready to discharge', sub: 'every item verified' }
+    if (failed) return { cls: 'bad', sev: 'sev-bad', label: 'Action failed', sub: 'needs attention' }
+    if (holds.length) return { cls: 'bad', sev: 'sev-bad', label: 'Blocked — needs a human',
+      sub: shortTitle(holds[0]) + ' · ' + (OWNER_LABEL[holds[0].owner] || holds[0].owner) }
+    if (working) return { cls: 'warn', sev: 'sev-warn', label: 'Agent working', sub: 'executing the approved plan' }
+    return { cls: 'plain', sev: '', label: 'Awaiting approval', sub: 'plan proposed' }
+  }
+  const tableView = () => {
+    const rows = s.patients.map((p) => {
+      const st = patientStatus(p)
+      const done = p.items.filter((i) => i.state === 'verified').length
+      const pct = p.items.length ? Math.round((100 * done) / p.items.length) : 0
+      const needs = p.items.filter((i) => i.state !== 'verified')
+      const chips = needs.slice(0, 4).map((i) =>
+        '<span class="need" data-id="' + i.id + '" onclick="event.stopPropagation();itemStory(this.dataset.id)">' +
+        '<span class="dot" style="background:' + needDot(i.state) + '"></span>' + esc(shortTitle(i)) + '</span>').join('') +
+        (needs.length > 4 ? '<span class="need more">+' + (needs.length - 4) + ' more</span>' : '')
+      const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
+      return '<div class="prow ' + st.sev + '" data-patient="' + esc(p.patientId) + '" onclick="expandedPatientId=this.dataset.patient;setView(\\'graph\\')">' +
+        '<div class="pcol"><div class="avatar">' + initials + '</div><div style="min-width:0"><div class="nm">' + esc(p.name) + '</div>' +
+        '<div class="sub">' + esc(p.patientId) + (p.location ? ' · ' + esc(p.location) : '') + '</div></div></div>' +
+        '<div><span class="schip ' + st.cls + '"><span class="dot" style="background:currentColor"></span>' + st.label + '</span>' +
+        '<div class="sub" style="margin-top:4px;font-size:11.5px;color:var(--ink-3)">' + esc(st.sub) + '</div></div>' +
+        '<div>' + (chips || '<span class="sub" style="color:var(--ink-3)">nothing outstanding</span>') + '</div>' +
+        '<div><div style="font-size:13px;font-weight:480">' + done + ' of ' + p.items.length + '</div>' +
+        '<span class="bar" style="width:90px;display:block;margin:5px 0 4px"><i style="width:' + pct + '%"></i></span>' +
+        '<a class="rlink" href="/receipt?patient=' + esc(p.patientId) + '" onclick="event.stopPropagation()">Receipt &darr;</a></div></div>'
+    }).join('')
+    return '<div class="ptable"><div class="phead"><span>Patient</span><span>Discharge status</span><span>What it still needs</span><span>Verified</span></div>' + rows + '</div>'
+  }
+  const listView = () => s.patients.map((p) => {
+    const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
+    return '<div class="ptable"><div class="lrow" style="cursor:default"><div class="avatar">' + initials + '</div>' +
+      '<span class="nm" style="font-weight:480">' + esc(p.name) + '</span><span class="sub" style="color:var(--ink-3);font-size:11.5px">' +
+      esc(p.patientId) + (p.location ? ' · ' + esc(p.location) : '') + '</span></div>' +
+      p.items.map((i) => '<div class="lrow" data-id="' + i.id + '" onclick="itemStory(this.dataset.id)">' + chip(i.state) +
+        '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span><span>' + esc(i.title) +
+        ((i.evidence || [])[0] ? ' <span class="q">&ldquo;' + q(i.evidence[0].quote) + '&rdquo;</span> <span class="tag rec">record</span>' : '') + '</span></div>').join('') + '</div>'
+  }).join('')
+  document.getElementById('board').innerHTML =
+    currentView === 'table' ? tableView() : currentView === 'list' ? listView() : graphView()
 
   document.getElementById('services').innerHTML = Object.entries(SERVICES).map(([key, name]) => {
     const n = all.filter((i) => i.owner === key && i.state !== 'verified').length
