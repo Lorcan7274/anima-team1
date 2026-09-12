@@ -9,6 +9,7 @@
  *   node scripts/flow-sim.ts --step 30 --beds 12  # sim-minutes per tick, ward size
  *   node scripts/flow-sim.ts --llm                # let the model draft letters (slower; default: canned drafts)
  *   node scripts/flow-sim.ts --replay             # no simulator: animate flow-state.json
+ *   node scripts/flow-sim.ts --port 4701          # serve the screen elsewhere (default 4700)
  *
  * Every tick is written to flow-state.json so --replay can run the screen
  * offline if the shared simulator is down at the stall.
@@ -31,13 +32,13 @@ if (flag('replay')) {
   state.paused = true
   state.busy = false
   state.phase = 'Replay of a recorded run — simulator not connected'
-  startFlowUi(state, { replay: true })
+  startFlowUi(state, { replay: true, port: Number(arg('port') ?? 4700) })
 } else {
   const params = { ...DEFAULT_FLOW, stepMinutes: Number(arg('step') ?? DEFAULT_FLOW.stepMinutes), wardSize: Number(arg('beds') ?? DEFAULT_FLOW.wardSize) }
   const worldName = arg('world') ?? `discharge-flow-${Math.random().toString(16).slice(2, 14)}`
   const state = newFlowState(worldName, params)
   state.drafts = flag('llm') ? 'model' : 'canned'
-  startFlowUi(state)
+  startFlowUi(state, { port: Number(arg('port') ?? 4700) })
   console.log(`flow world: ${worldName}`)
   const { sim } = await joinWorld(worldName, (entry) => {
     state.trace!.push(entry)
