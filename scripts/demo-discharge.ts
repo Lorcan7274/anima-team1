@@ -15,7 +15,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { connectWorld, joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '../src/orchestrator/world.ts'
-import { approveAll, buildBoard, clearHold, detectAll, pendingWork, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
+import { approveAll, buildBoard, clearHold, detectAll, pendingWork, runUntilSettled, readyForDischarge, newRunId } from '../src/orchestrator/run.ts'
 import { refreshStage } from '../src/orchestrator/detect.ts'
 import type { OrchestratorContext } from '../src/orchestrator/model.ts'
 import { startUi } from '../src/ui/server.ts'
@@ -37,7 +37,7 @@ console.log(`world: ${worldName}`)
 
 // Serve the UI immediately with an empty board — it fills in live as setup
 // and detection progress, so the browser never sees a connection refused.
-const board: import('../src/orchestrator/model.ts').BoardState = { world: worldName, simNow: 0, patients: [], log: [], trace: [], phase: 'Joining the simulator world', busy: true }
+const board: import('../src/orchestrator/model.ts').BoardState = { world: worldName, runId: newRunId(), simNow: 0, patients: [], log: [], trace: [], phase: 'Joining the simulator world', busy: true }
 if (!flag('no-ui')) startUi(board)
 
 // Every simulator request lands in the board's trace — the compliance record —
