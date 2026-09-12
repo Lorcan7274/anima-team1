@@ -14,7 +14,8 @@
 import type { SimClient } from '../sim/index.ts'
 
 export type ItemState =
-  | 'detected'
+  | 'proposed' // barrier identified, action proposed — awaiting staff approval
+  | 'approved' // staff approved the operational plan; agent may act
   | 'resolving'
   | 'awaiting_verification'
   | 'verified'
@@ -64,10 +65,15 @@ export interface ChecklistItem {
   owner: OwnerSite
   state: ItemState
   evidence: Evidence[]
+  /** What the agent will do if approved — shown at the approval step. */
+  proposedAction?: string
+  approval?: { by: string; at: number }
   resolution?: Resolution
   verification?: Verification
   /** For clinical_hold / blocked_human: why automation must stop. */
   humanReason?: string
+  /** Prepared handover for a blocked_human item; the case STAYS blocked. */
+  escalation?: { responsibleTeam: string; nextAction: string; note: string }
   error?: string
 }
 

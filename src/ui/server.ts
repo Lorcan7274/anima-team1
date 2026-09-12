@@ -11,13 +11,13 @@
  */
 import { createServer } from 'node:http'
 import type { BoardState } from '../orchestrator/model.ts'
-import { clearHold } from '../orchestrator/run.ts'
+import { approveAll, clearHold, prepareEscalation } from '../orchestrator/run.ts'
 
 const PAGE = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Discharge Desk</title>
+<title>Homeward</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -85,6 +85,8 @@ const PAGE = `<!doctype html>
                  border:1px solid var(--accent);border-radius:8px;padding:4px 12px;cursor:pointer}
   button.confirm:hover{background:var(--accent-soft)}
 
+  .escalation{margin-top:6px;padding:8px 10px;border:1px solid var(--hairline);border-left:3px solid var(--accent);
+              border-radius:6px;font-size:12px;color:var(--ink-2);background:var(--accent-soft)}
   .log-card h2{font-size:14px;font-weight:600;margin-bottom:10px}
   #log{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;
        display:flex;flex-direction:column-reverse;gap:4px;max-height:260px;overflow:auto}
@@ -92,8 +94,8 @@ const PAGE = `<!doctype html>
 </style></head><body>
 <div class="app">
   <aside class="sidebar">
-    <div class="brand"><div class="mark">DD</div>
-      <div><div class="name">Discharge Desk</div><div class="sub">neighbourhood coordination</div></div></div>
+    <div class="brand"><div class="mark">H</div>
+      <div><div class="name">Homeward</div><div class="sub">discharge coordination</div></div></div>
     <div class="nav-item active">Ward list</div>
     <div class="nav-item" onclick="document.getElementById('audit').scrollIntoView({behavior:'smooth'})">Audit log</div>
     <div class="foot">world <b id="world">—</b><br>sim clock <b id="clock">—</b></div>
@@ -108,7 +110,8 @@ const PAGE = `<!doctype html>
 </div>
 <script>
 const META = {
-  detected:               { label: 'Barrier',    color: 'var(--serious)' },
+  proposed:               { label: 'Proposed',   color: 'var(--serious)' },
+  approved:               { label: 'Approved',   color: 'var(--warning)' },
   resolving:              { label: 'Working',    color: 'var(--warning)' },
   awaiting_verification:  { label: 'Verifying',  color: 'var(--warning)' },
   verified:               { label: 'Verified',   color: 'var(--good)' },
@@ -130,7 +133,7 @@ function render(s) {
   document.getElementById('clock').textContent = new Date(s.simNow).toISOString().slice(0, 16).replace('T', ' ')
   const all = s.patients.flatMap((p) => p.items)
   const ready = s.patients.filter((p) => p.items.length && p.items.every((i) => i.state === 'verified')).length
-  const open = all.filter((i) => ['detected','resolving','awaiting_verification','failed'].includes(i.state)).length
+  const open = all.filter((i) => ['proposed','approved','resolving','awaiting_verification','failed'].includes(i.state)).length
   const human = all.filter((i) => i.state === 'clinical_hold' || i.state === 'blocked_human').length
   document.getElementById('kpis').innerHTML =
     kpi('On the ward', s.patients.length, 'tracked patients') +
@@ -147,7 +150,11 @@ function render(s) {
       '<div><div class="patient-name">' + esc(p.name) + '</div>' +
       '<div class="patient-meta">' + esc(p.patientId) + ' · ' + esc(p.stage ?? '?') +
       (p.location ? ' · ' + esc(p.location) : '') + ' · ' + esc((p.conditions || []).join(', ')) + '</div></div>' +
-      '<div class="ready-pill"><span class="count">' + done + ' of ' + p.items.length + ' verified</span>' +
+      '<div class="ready-pill">' +
+      (p.items.some((i) => i.state === 'proposed')
+        ? '<button class="confirm" onclick="approve(\'' + p.patientId + '\')">Approve plan</button>'
+        : '') +
+      '<span class="count">' + done + ' of ' + p.items.length + ' verified</span>' +
       '<span class="bar"><i style="width:' + pct + '%"></i></span></div></div>' +
       '<div class="items">' + p.items.map((i) =>
         '<div class="item">' + chip(i.state) +
@@ -165,6 +172,8 @@ function render(s) {
 }
 async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
 async function clearHold(id) { await fetch('/clear-hold?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
+async function approve(patient) { await fetch('/approve?patient=' + encodeURIComponent(patient), { method: 'POST' }); tick() }
+async function escalate(id) { await fetch('/escalate?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
 setInterval(tick, 2000); tick()
 </script></body></html>`
 
@@ -178,6 +187,14 @@ export function startUi(board: BoardState, port = 4600): void {
       const ok = clearHold(board, url.searchParams.get('item') ?? '', 'Demo clinician')
       res.statusCode = ok ? 200 : 404
       res.end(ok ? 'cleared' : 'not found')
+    } else if (url.pathname === '/approve' && req.method === 'POST') {
+      const n = approveAll(board, 'Demo coordinator', url.searchParams.get('patient') ?? undefined)
+      res.end(String(n))
+    } else if (url.pathname === '/escalate' && req.method === 'POST') {
+      prepareEscalation(board, url.searchParams.get('item') ?? '').then((ok) => {
+        res.statusCode = ok ? 200 : 404
+        res.end(ok ? 'escalated' : 'not found')
+      })
     } else {
       res.setHeader('content-type', 'text/html')
       res.end(PAGE)

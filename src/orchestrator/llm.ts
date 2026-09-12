@@ -64,12 +64,14 @@ export type ProposedBarrier = z.infer<typeof ProposedBarrierSchema>['barriers'][
  * into the rule-detected items as extra evidence and logs 'other' proposals.
  */
 export async function proposeBarriersFromText(source: string, text: string): Promise<ProposedBarrier[]> {
+  // Stable instructions first, variable record text last — the OpenAI prompt
+  // cache matches on stable prefixes, so keep everything constant up front.
   const out = await structured(
     'barrier_reader',
     ProposedBarrierSchema,
-    `Source: ${source}\n\nRecord text:\n"""\n${text}\n"""\n\n` +
-      `List every discharge barrier this text evidences. Quote the exact words. ` +
-      `Use kind 'other' only when no listed kind fits.`,
+    `List every discharge barrier the record text evidences. Quote the exact words. ` +
+      `Use kind 'other' only when no listed kind fits.\n\n` +
+      `Source: ${source}\nRecord text:\n"""\n${text}\n"""`,
     () => ({ barriers: [] }),
   )
   return out.barriers
@@ -116,6 +118,43 @@ export async function draftDischargeSummary(context: {
       results: context.bloodSummary,
       followUp: context.planned.join(' '),
       gpActions: 'Review repeat bloods when resulted; assess diuretic tolerance at telephone review.',
+    }),
+  )
+}
+
+// --- Escalation handover ------------------------------------------------------
+
+const EscalationSchema = z.object({
+  responsibleTeam: z.string().describe('The team that owns this decision, e.g. "Community social care team"'),
+  nextAction: z.string().describe('The single concrete next step for that team'),
+  note: z.string().describe('2-3 sentence handover note citing the evidence'),
+})
+
+export type Escalation = z.infer<typeof EscalationSchema>
+
+/**
+ * Draft the escalation handover for a barrier the agent cannot clear.
+ * The output NEVER resolves the barrier — it names the owner and next step.
+ */
+export async function draftEscalation(context: {
+  patientName: string
+  title: string
+  humanReason: string
+  quotes: string[]
+}): Promise<Escalation> {
+  return structured(
+    'escalation_writer',
+    EscalationSchema,
+    `Draft an escalation handover for a discharge barrier the coordination agent ` +
+      `cannot and must not resolve itself. Name the responsible team, one concrete ` +
+      `next action, and a short factual note. Do not suggest the barrier is resolved.\n\n` +
+      `Patient: ${context.patientName}\nBarrier: ${context.title}\n` +
+      `Why a human is needed: ${context.humanReason}\n` +
+      `Evidence:\n${context.quotes.map((q) => `- "${q}"`).join('\n')}`,
+    () => ({
+      responsibleTeam: 'Community social care team',
+      nextAction: 'Confirm the funding decision, home access and carer availability for the care package',
+      note: `${context.patientName}'s ${context.title.toLowerCase()}. ${context.humanReason} Evidence: ${context.quotes[0] ?? 'see record'}.`,
     }),
   )
 }

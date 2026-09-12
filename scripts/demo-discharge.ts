@@ -1,15 +1,20 @@
 /**
- * Demo runner for the discharge-readiness orchestrator.
+ * Demo runner for Homeward, the discharge coordination agent.
  *
  *   node scripts/demo-discharge.ts                     # new random world, full run
  *   node scripts/demo-discharge.ts --world <name>      # specific world (join code!)
- *   node scripts/demo-discharge.ts --detect-only       # M1: read-only checklist
+ *   node scripts/demo-discharge.ts --detect-only       # read-only checklist
  *   node scripts/demo-discharge.ts --no-ui             # skip the ward-list server
+ *   node scripts/demo-discharge.ts --approve           # auto-approve the plan (headless)
  *
+ * With the UI up and no --approve, the runner WAITS for the "Approve plan"
+ * click — that is the staff-approval demo beat. Board snapshots are written to
+ * fallback-board.json after each phase (serve offline via scripts/serve-fallback.ts).
  * Stage demo: run with a brand-new unguessable world minutes before demoing.
  */
+import { writeFileSync } from 'node:fs'
 import { joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '../src/orchestrator/world.ts'
-import { buildBoard, detectAll, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
+import { approveAll, buildBoard, detectAll, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
 import type { OrchestratorContext } from '../src/orchestrator/model.ts'
 import { startUi } from '../src/ui/server.ts'
 
@@ -52,13 +57,30 @@ for (const p of board.patients) {
   for (const i of p.items) console.log(`  [${i.state}] (${i.owner}) ${i.title}`)
 }
 
+const snapshot = () => {
+  try { writeFileSync('fallback-board.json', JSON.stringify(board, null, 1)) } catch {}
+}
+snapshot()
+
 if (!flag('no-ui')) startUi(board)
 
 if (flag('detect-only')) {
-  console.log('\n--detect-only: stopping after detection (M1). UI stays up if started.')
+  console.log('\n--detect-only: stopping after detection. UI stays up if started.')
 } else {
+  // --- Staff approval gate ---------------------------------------------------
+  if (flag('approve') || flag('no-ui')) {
+    approveAll(board, 'Auto-approval (headless run)')
+  } else {
+    console.log('\nwaiting for "Approve plan" in the UI (or re-run with --approve)...')
+    while (board.patients.flatMap((p) => p.items).some((i) => i.state === 'proposed')) {
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  }
+  snapshot()
+
   // --- Resolve -> advance -> verify loop ------------------------------------
   await runUntilSettled(ctx)
+  snapshot()
 
   // --- Finale: discharge whoever is fully green ------------------------------
   for (const p of board.patients) {
@@ -70,6 +92,7 @@ if (flag('detect-only')) {
       ctx.log(`${p.name} NOT discharged — ${open.length} unresolved: ${open.map((i) => `${i.id}[${i.state}]`).join(', ')}`)
     }
   }
+  snapshot()
   console.log('\nProof in the sim’s own apps: hospital discharged list, GP inbox, community board, home dashboard.')
   console.log('Note: clinical holds require clicking "Confirm reviewed" in the UI, then re-run against the SAME world.')
 }

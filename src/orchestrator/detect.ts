@@ -98,7 +98,8 @@ export async function detectForPatient(
       patientId: P,
       title: `Discharge medicines not dispensed (${(rx.data as any)?.drug ?? rx.title})`,
       owner: 'pharmacy',
-      state: 'detected',
+      state: 'proposed',
+      proposedAction: 'Link pharmacy stock, dispense and record collection',
       evidence: [ev(rx.id, 'hospital', `${rx.title}: status ${rx.status}, not dispensed or collected`)],
     })
   }
@@ -111,7 +112,8 @@ export async function detectForPatient(
       patientId: P,
       title: 'Post-discharge blood monitoring not arranged (routine U&E + FBC)',
       owner: 'diagnostics',
-      state: 'detected',
+      state: 'proposed',
+      proposedAction: 'Order routine U&E + FBC citing the result history',
       evidence: [ev(monitoringDoc.id, 'hospital', ((monitoringDoc.data as any)?.text ?? '').slice(0, 160))],
     })
   }
@@ -123,7 +125,8 @@ export async function detectForPatient(
       patientId: P,
       title: 'No home monitoring device connected',
       owner: 'wearables',
-      state: 'detected',
+      state: 'proposed',
+      proposedAction: 'Issue a home activity watch and await the first reading',
       evidence: monitoringDoc
         ? [ev(monitoringDoc.id, 'hospital', 'home equipment and medication handover not confirmed')]
         : [],
@@ -139,7 +142,8 @@ export async function detectForPatient(
       patientId: P,
       title: 'Home support visit not arranged',
       owner: 'community',
-      state: 'detected',
+      state: 'proposed',
+      proposedAction: 'Schedule a community home-support visit and confirm completion',
       evidence: [ev('directory', 'patient-directory', `Recorded need: "Home visit"`)],
     })
   }
@@ -153,7 +157,8 @@ export async function detectForPatient(
     patientId: P,
     title: 'Discharge summary for this admission not written/sent',
     owner: 'hospital',
-    state: 'detected',
+    state: 'proposed',
+      proposedAction: 'Draft all seven discharge sections and send to the GP',
     evidence: monitoringDoc
       ? [ev(monitoringDoc.id, 'hospital', 'medication handover not confirmed')]
       : [],
@@ -166,7 +171,8 @@ export async function detectForPatient(
     patientId: P,
     title: `GP follow-up not arranged${avoidTravel ? ' (telephone — patient goal: avoid travel)' : ''}`,
     owner: 'gp',
-    state: 'detected',
+    state: 'proposed',
+      proposedAction: 'Create a 48h telephone review task for the GP',
     evidence: avoidTravel ? [ev('directory', 'patient-directory', 'Goal: "Avoid unnecessary travel"')] : [],
   })
 

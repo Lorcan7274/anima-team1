@@ -1,4 +1,7 @@
-# Build brief: Discharge-Readiness Orchestrator (v2)
+# Build brief: Homeward — Discharge-Readiness Orchestrator (v3)
+
+Product name: **Homeward**. The team demo plan (approval gate before execution,
+escalation handovers, static fallback mode) is implemented in the scaffold.
 
 You are building a hackathon project on the NHS-SIM synthetic healthcare simulator.
 This brief encodes facts verified against the live API on 2026-09-12 in scratch
@@ -273,8 +276,11 @@ discharged list, GP inbox, community board, home dashboard.
 ```
 src/orchestrator/
   model.ts    # ChecklistItem {id, patientId, title, owner, state, evidence[],
-              #  resolution?, verification?}; states: detected -> resolving ->
+              #  proposedAction?, approval?, resolution?, verification?, escalation?}
+              #  states: proposed -> approved (staff gate) -> resolving ->
               #  awaiting_verification -> verified | blocked_human | clinical_hold
+              #  blocked_human items can carry a prepared escalation (team +
+              #  next action + note) and STAY blocked
   detect.ts   # rule-based readers + LLM free-text pass -> items with quoted evidence
   resolve.ts  # one resolver per item type; returns {resourceId, key, action} for audit
   verify.ts   # re-reads resolver-created resourceIds only

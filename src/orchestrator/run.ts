@@ -77,13 +77,59 @@ export async function runUntilSettled(ctx: OrchestratorContext, opts: RunOptions
   for (let round = 1; round <= maxRounds; round++) {
     const open = ctx.board.patients.flatMap((p) => p.items).filter((i) => !isSettled(i) && i.state !== 'failed')
     if (open.length === 0) return
+    if (open.every((i) => i.state === 'proposed')) {
+      ctx.log('all open items await staff approval — not acting')
+      return
+    }
     ctx.log(`--- round ${round}: ${open.length} open item(s) ---`)
-    for (const item of open.filter((i) => i.state === 'detected')) await resolveItem(ctx, item)
+    for (const item of open.filter((i) => i.state === 'approved')) await resolveItem(ctx, item)
     ctx.log(`advancing clock ${advance} sim-minutes`)
     await ctx.sim.advanceClock(advance)
     ctx.board.simNow = Number((await ctx.sim.clock()).now)
     for (const item of open.filter((i) => i.state === 'awaiting_verification')) await verifyItem(ctx, item)
   }
+}
+
+/**
+ * Staff approval of the operational coordination plan. Approves 'proposed'
+ * items only — clinical holds and blocked_human items are untouchable here.
+ */
+export function approveAll(board: BoardState, approver: string, patientId?: string): number {
+  let count = 0
+  for (const p of board.patients) {
+    if (patientId && p.patientId !== patientId) continue
+    for (const item of p.items) {
+      if (item.state === 'proposed') {
+        item.state = 'approved'
+        item.approval = { by: approver, at: board.simNow }
+        count++
+      }
+    }
+  }
+  if (count) board.log.push(`APPROVED ${count} operational item(s) by ${approver}`)
+  return count
+}
+
+/**
+ * Prepare an escalation handover for a blocked_human item: responsible team,
+ * next action, drafted note. The item STAYS blocked — escalation makes
+ * ownership visible, it never resolves the barrier.
+ */
+export async function prepareEscalation(board: BoardState, itemId: string): Promise<boolean> {
+  const { draftEscalation } = await import('./llm.ts')
+  for (const p of board.patients) {
+    const item = p.items.find((i) => i.id === itemId && i.state === 'blocked_human')
+    if (!item) continue
+    item.escalation = await draftEscalation({
+      patientName: p.name,
+      title: item.title,
+      humanReason: item.humanReason ?? '',
+      quotes: item.evidence.map((e) => e.quote),
+    })
+    board.log.push(`ESCALATION prepared for ${itemId} -> ${item.escalation.responsibleTeam} (case remains blocked)`)
+    return true
+  }
+  return false
 }
 
 /** A clinician clicked "confirm" on a hold — the only way a hold clears. */
