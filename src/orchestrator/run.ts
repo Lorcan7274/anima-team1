@@ -140,6 +140,24 @@ export async function prepareEscalation(board: BoardState, itemId: string): Prom
   return false
 }
 
+/** The seven discharge-summary sections the simulator accepts. */
+export const LETTER_SECTIONS = ['reason', 'course', 'diagnoses', 'medicationChanges', 'results', 'followUp', 'gpActions'] as const
+
+/**
+ * A clinician saved an edited discharge letter in the UI. Stored on the
+ * patient row; the summary resolver sends these sections instead of drafting
+ * its own. Nothing is sent to the simulator here.
+ */
+export function saveLetter(board: BoardState, patientId: string, sections: Record<string, unknown>, editedBy: string): boolean {
+  const row = board.patients.find((p) => p.patientId === patientId)
+  if (!row) return false
+  const clean: Record<string, string> = {}
+  for (const k of LETTER_SECTIONS) clean[k] = String(sections[k] ?? '').slice(0, 4000)
+  row.letter = { sections: clean, editedBy, at: Date.now() }
+  board.log.push(`LETTER draft saved for ${patientId} by ${editedBy}`)
+  return true
+}
+
 /** A clinician clicked "confirm" on a hold — the only way a hold clears. */
 export function clearHold(board: BoardState, itemId: string, clinician: string): boolean {
   for (const p of board.patients) {

@@ -87,8 +87,8 @@ export interface ChecklistItem {
   humanReason?: string
   /** Summary items on blocked patients: save the draft but never send it. */
   draftOnly?: boolean
-  /** Whether model output on this item came from the live model or the canned fallback. */
-  generated?: 'model' | 'fallback'
+  /** Whether model output on this item came from the live model, the canned fallback, or a clinician's edited draft. */
+  generated?: 'model' | 'fallback' | 'clinician'
   /** Prepared handover for a blocked_human item; the case STAYS blocked. */
   escalation?: { responsibleTeam: string; nextAction: string; note: string; source?: 'model' | 'fallback' }
   error?: string
@@ -135,6 +135,8 @@ export interface PatientRow {
   location?: string
   /** Sim time the agent world freed the bed (attendance discharged). */
   dischargedAt?: number
+  /** Clinician-edited discharge letter; the summary resolver sends these sections instead of drafting. */
+  letter?: { sections: Record<string, string>; editedBy: string; at: number }
   items: ChecklistItem[]
 }
 

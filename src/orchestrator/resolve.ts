@@ -62,7 +62,10 @@ const resolveVisit: Resolver = async (ctx, item) => {
 const resolveSummary: Resolver = async (ctx, item) => {
   const row = ctx.board.patients.find((p) => p.patientId === item.patientId)
   const bloods = await bloodSummary(ctx.sim, item.patientId)
-  const { sections, source: summarySource } = await draftDischargeSummary({
+  // A clinician-edited draft from the UI wins over anything the model would write.
+  const { sections, source: summarySource } = row?.letter
+    ? { sections: row.letter.sections, source: 'clinician' as const }
+    : await draftDischargeSummary({
     patientName: row?.name ?? item.patientId,
     conditions: row?.conditions ?? [],
     documentTexts: item.evidence.map((e) => e.quote),

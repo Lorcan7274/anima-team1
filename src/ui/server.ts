@@ -1,34 +1,20 @@
 /**
- * Homeward ward-list UI, Mercury-style: light surfaces, Inter variable font
- * with measured weights (420/480/530), cobalt actions, sidebar, KPI tiles
- * with a live sparkline, collapsible patient cards, a patient-centred barrier
- * graph, an Accounts-style Services rail,
- * and the activity log.
+ * Homeward "journey home" page: one patient at a time, the route from
+ * hospital to home as five gates (clinical, medicines, monitoring, support,
+ * handover) derived from the checklist items, the operational work and the
+ * named human confirmations beneath it, the timing story against the
+ * manual-ward model, and the discharge pack (record facts, prescriptions,
+ * the agent's drafted letter — editable, and what the agent sends).
  *
- * The rail opens with the story panel: the same ward twice — an illustrative
- * manual-working model (src/story/baseline.ts) beside the live agent world —
- * with bed-hours-saved counters and a replay scrubber.
- *
- * Polls /state every 2s. Buttons: "Approve plan" (header, staff approval of
- * all proposed items), "Confirm reviewed" (clinical hold sign-off),
- * "Prepare escalation" (blocked_human handover). Each KPI tile opens a modal
- * over a blurred backdrop listing the items behind that number with what the
- * agent planned, did, verified, and the evidence it quoted. No dependencies — Node http
- * + one page. Inter loads from Google Fonts; falls back to system-ui offline.
- *
- * Colors follow the dataviz skill's fixed status palette (icon + label,
- * never color alone); text stays in ink tokens, the dot carries the color.
- *
- * Written for a clinician glancing at it: every state has a one-sentence
- * meaning, and every simulator call reads as what the agent did and what
- * the service replied (trace.ts wording). The raw request, reply and
- * idempotency key sit behind a "Show request" drop-down that stays open
- * across the poll.
+ * Polls /state every 1.5s and re-renders only when it changed; unsaved
+ * letter edits survive re-renders. Every sentence on the page is derived
+ * from board state; nothing is hard-coded per patient. The raw request and
+ * reply of every simulator call sit behind "Show request".
  */
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { BoardState, ChecklistItem, PatientRow } from '../orchestrator/model.ts'
-import { approveAll, clearHold, prepareEscalation } from '../orchestrator/run.ts'
+import { approveAll, clearHold, prepareEscalation, saveLetter } from '../orchestrator/run.ts'
 import { computeStory } from '../story/story.ts'
 
 /** What each verified item does NOT prove — epistemic honesty, per item kind. */
@@ -96,7 +82,7 @@ export function buildReceipt(board: BoardState, patientId: string): string | und
     }
     if (i.resolution) L.push(`
 Idempotency key: \`${i.resolution.idempotencyKey}\``)
-    if (i.generated) { L.push(''); L.push(`**Drafting provenance:** ${i.generated === 'model' ? 'content written by the live model' : 'canned fallback (model unavailable)'}`) }
+    if (i.generated) { L.push(''); L.push(`**Drafting provenance:** ${i.generated === 'model' ? 'content written by the live model' : i.generated === 'clinician' ? 'sections edited and saved by a clinician in Homeward' : 'canned fallback (model unavailable)'}`) }
     if (i.verification) {
       L.push('')
       L.push(`**Independent verification:** ${i.verification.passed ? 'PASSED' : 'NOT YET'} — ${i.verification.observed} at ${mdWhen(i.verification.atSimTime)}`)
@@ -120,1128 +106,416 @@ Idempotency key: \`${i.resolution.idempotencyKey}\``)
 }
 
 export const PAGE = `<!doctype html>
-<html lang="en"><head>
+<html lang="en">
+<head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Homeward</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Homeward | Journey home</title>
 <style>
-  :root{
-    --page:#f9f9f7; --surface:#ffffff; --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
-    --hairline:rgba(11,11,11,0.10); --grid:#e1e0d9;
-    --accent:#5266eb; --accent-soft:rgba(82,102,235,0.08);
-    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
-    --radius:12px;
-  }
-  *{box-sizing:border-box;margin:0}
-  body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
-       font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
-  a{color:inherit;text-decoration:none}
-
-  .app{display:grid;grid-template-columns:224px 1fr;min-height:100vh}
-  .sidebar{background:var(--surface);border-right:1px solid var(--hairline);padding:20px 14px;
-           display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh}
-  .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px}
-  .brand .mark{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#5266eb,#7a8cf0);
-               display:grid;place-items:center;color:#fff;font-weight:530;font-size:13px}
-  .brand .name{font-weight:480;font-size:14px}
-  .brand .sub{font-size:11px;color:var(--ink-3)}
-  .nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--ink-2);
-            font-weight:420;cursor:pointer}
-  .nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:480}
-  .nav-item:hover:not(.active){background:#f4f4f1}
-  .psearch{margin:2px 4px 10px;padding:7px 12px;font:inherit;font-size:12px;border:1px solid var(--grid);
-           border-radius:8px;width:calc(100% - 8px);background:#fbfbf9;color:var(--ink)}
-  .psearch:focus{outline:none;border-color:var(--accent)}
-  .plist-label{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);
-               padding:4px 10px 6px}
-  .pat{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;border-left:3px solid transparent}
-  .pat:hover{background:#f4f4f1}
-  .pat.sel{background:var(--accent-soft);border-left-color:var(--accent)}
-  .pat .avatar{width:28px;height:28px;font-size:11px}
-  .pat .pn{font-size:13px;font-weight:480;line-height:1.2}
-  .pat .pm{font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .pat .pdot{margin-left:auto;width:9px;height:9px;border-radius:50%;flex:none}
-  .hero{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
-        padding:18px 20px;margin-bottom:14px;box-shadow:0 1px 2px rgba(11,11,11,0.03)}
-  .hero .q{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
-  .hero h2{font-size:20px;font-weight:480;margin:2px 0 10px}
-  .hero .verdict{font-size:22px;font-weight:530;letter-spacing:-0.01em}
-  .hero .verdict.no{color:var(--critical)}
-  .hero .verdict.yes{color:var(--good)}
-  .hero .verdict.warn{color:#7a5605}
-  .hero .vsub{font-size:13.5px;font-weight:480;margin-top:4px}
-  .hero .vwhat{font-size:13px;color:var(--ink-2);margin-top:6px;line-height:1.55}
-  .sidebar .foot{margin-top:auto;padding:10px;font-size:12px;color:var(--ink-3);border-top:1px solid var(--grid)}
-  .sidebar .foot b{color:var(--ink-2);font-weight:480}
-
-  .main{padding:28px 36px;max-width:1220px}
-  .header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
-  h1{font-size:22px;font-weight:480;letter-spacing:0.01em}
-  .subtitle{color:var(--ink-3);font-size:13px;margin-top:2px}
-  button.primary{font:inherit;font-size:13px;font-weight:480;color:#fff;background:var(--accent);
-                 border:none;border-radius:999px;padding:9px 20px;cursor:pointer;white-space:nowrap}
-  button.primary:hover{filter:brightness(1.06)}
-  button.ghost{font:inherit;font-size:12px;font-weight:480;color:var(--ink-2);background:var(--surface);
-               border:1px solid var(--hairline);border-radius:999px;padding:8px 16px;cursor:pointer;white-space:nowrap}
-  button.ghost:hover{background:#f4f4f1}
-  .wire{font-family:ui-monospace,SFMono-Regular,monospace;font-size:11px;display:flex;gap:8px;align-items:baseline;
-        padding:5px 0;border-top:1px solid var(--grid);color:var(--ink-2)}
-  .wire .m{min-width:38px;font-weight:600}
-  .wire .m.post{color:var(--accent)}
-  .wire .bad{color:var(--critical)}
-  .wire .k{color:var(--ink-3)}
-  .wire code{background:#f4f4f1;border-radius:4px;padding:0 4px}
-  .kv{display:grid;grid-template-columns:96px 1fr;gap:0 14px;padding:8px 0;border-top:1px solid var(--grid);align-items:baseline}
-  .kv:first-of-type{border-top:none}
-  .kv .k{font-size:12px;color:var(--ink-3);font-weight:420}
-  .kv .v{font-size:13px;color:var(--ink);line-height:1.5}
-  .kv .v code{font-family:ui-monospace,monospace;font-size:11px;background:#f4f4f1;border-radius:4px;padding:1px 5px}
-  .call{border:1px solid var(--grid);border-radius:8px;padding:10px 14px;margin-top:8px}
-  .call .head{display:flex;gap:10px;align-items:baseline;font-size:12px;flex-wrap:wrap}
-  .call .head .t{color:var(--ink-3);font-variant-numeric:tabular-nums}
-  .call .head .m{font-weight:600;color:var(--accent)}
-  .call .head .m.get{color:var(--ink-3)}
-  .call .head .a{font-weight:480}
-  .call .head .ok{color:var(--good);font-weight:480}
-  .call .head .fail{color:var(--critical);font-weight:480}
-  .call pre{background:#f6f6f4;border-radius:6px;padding:8px 10px;font-size:11px;line-height:1.5;
-            white-space:pre-wrap;word-break:break-all;margin:8px 0 0;font-family:ui-monospace,monospace;color:var(--ink-2)}
-  .call .meta{font-size:11px;color:var(--ink-3);margin-top:6px;word-break:break-all}
-  .call .say{display:grid;grid-template-columns:16px 58px minmax(0,1fr);gap:8px;align-items:baseline;font-size:13px}
-  .call .say .ic{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:530;
-                 color:#fff;background:var(--good);align-self:start;line-height:1}
-  .call.read .say .ic{background:#c9c8c1}
-  .call.bad .say .ic{background:var(--critical)}
-  .call .say .t{color:var(--ink-3);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .call .say .what{color:var(--ink);font-weight:420}
-  .call.read .say .what{color:var(--ink-2)}
-  .call .say .out{display:block;color:var(--ink-3);font-size:12px;margin-top:1px}
-  .call.bad .say .out{color:var(--critical)}
-  .call.read{padding:6px 14px;border-color:transparent;margin-top:2px}
-  details.reqdd{margin:4px 0 0 82px}
-  details.reqdd summary{cursor:pointer;color:var(--accent);font-size:11px;font-weight:480;list-style:none;
-                       display:flex;width:max-content;align-items:center;gap:4px;user-select:none}
-  details.reqdd summary::-webkit-details-marker{display:none}
-  details.reqdd summary::before{content:'▸';font-size:10px}
-  details.reqdd[open] summary::before{content:'▾'}
-  details.reqdd .head{margin-top:8px}
-  .stmt{font-size:12px;color:var(--ink-2);margin-top:6px;font-style:normal}
-  .facts{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
-  .fact{font-size:11.5px;color:var(--ink-2);background:#f4f4f1;border-radius:6px;padding:3px 8px}
-  .fact b{font-weight:530;color:var(--ink)}
-  .fact.bad{background:rgba(208,59,59,0.08);color:#a32f2f}
-  .fact.bad b{color:#a32f2f}
-  .vwarn{margin-top:10px;font-size:12px;color:#7a5605;background:rgba(250,178,25,0.12);border-radius:6px;padding:6px 10px}
-  .own{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:16px 18px;margin-top:14px}
-  .own .speaker{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
-  .own blockquote{font-size:15px;line-height:1.5;margin-top:6px}
-  .own .goal{margin-top:8px;font-size:12px;color:var(--ink-2)}
-  .own .src{margin-top:4px;font-size:11px;color:var(--ink-3)}
-  .refuse{background:rgba(208,59,59,0.08);color:#a32f2f;border-radius:var(--radius);padding:12px 16px;font-weight:480;margin:0 0 14px}
-  .refuse span{display:block;font-weight:400;margin-top:2px;color:var(--ink-2)}
-  ol.plan{margin:8px 0 0 0;padding-left:22px;font-size:13px;line-height:1.55;color:var(--ink)}
-  ol.plan li{margin:3px 0}
-  .planfoot{display:flex;align-items:center;gap:14px;margin-top:18px;padding-top:14px;border-top:1px solid var(--grid)}
-  .planfoot .sub{font-size:12px;color:var(--ink-3)}
-
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
-  .kpi{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 16px;
-       position:relative;overflow:hidden}
-  .kpi .label{font-size:12px;color:var(--ink-3);font-weight:420}
-  .kpi .value{font-size:26px;font-weight:530;letter-spacing:-0.01em;margin-top:2px}
-  .kpi .hint{font-size:11px;color:var(--ink-3)}
-  .kpi.has-spark{padding-bottom:40px}
-  .kpi{cursor:pointer;transition:border-color .12s,box-shadow .12s}
-  .kpi:hover,.kpi:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none}
-  .kpi .more{position:absolute;top:12px;right:14px;font-size:11px;color:var(--ink-3)}
-
-  .modal-backdrop{position:fixed;inset:0;z-index:50;display:none;place-items:center;padding:24px;
-                  background:rgba(11,11,11,0.28);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
-  .modal-backdrop.open{display:grid}
-  .modal{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;width:min(760px,100%);
-         max-height:84vh;overflow:auto;padding:20px 24px 24px;box-shadow:0 20px 60px rgba(11,11,11,0.18)}
-  .modal-head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
-  .modal-head h2{font-size:17px;font-weight:480}
-  .modal-head .sub{color:var(--ink-3);font-size:12px;margin-top:2px}
-  .modal-head button{margin-left:auto}
-  .modal .group{margin-top:16px}
-  .modal .group h3{font-size:13px;font-weight:480;display:flex;gap:8px;align-items:baseline}
-  .modal .group h3 span{color:var(--ink-3);font-size:11px;font-weight:420}
-  .mi{padding:10px 0;border-top:1px solid var(--grid)}
-  .mi .row{display:flex;align-items:baseline;gap:10px}
-  .mi .detail{margin:6px 0 0 0;padding-left:8px;border-left:2px solid var(--grid);font-size:12px;color:var(--ink-2)}
-  .mi .detail>div{margin-top:3px}
-  .mi .detail b{font-weight:480;color:var(--ink)}
-  .mi .detail code{font:inherit;font-size:11px;color:var(--ink-3)}
-  .mi .trace{color:var(--ink-3);font-variant-numeric:tabular-nums}
-  .modal .empty{color:var(--ink-3);font-size:13px;padding:18px 0}
-  .kpi svg{position:absolute;left:0;right:0;bottom:0;width:100%;height:28px;display:block}
-
-  .content{display:grid;grid-template-columns:1fr 340px;gap:14px;align-items:start}
-  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
-        padding:18px 20px;margin-bottom:14px;box-shadow:0 1px 2px rgba(11,11,11,0.03)}
-  .rail .card{padding:16px 18px}
-  .rail h2,.log-card h2{font-size:13px;font-weight:480;margin-bottom:6px}
-
-  .patient-card{padding:0;overflow:hidden;transition:border-color .16s}
-  .patient-card.expanded{border-color:rgba(11,11,11,0.16)}
-  .patient-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%;padding:16px 18px;
-                border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
-  .patient-head:hover{background:#fbfbf9}
-  .patient-head:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-  .avatar{width:34px;height:34px;border-radius:50%;background:rgba(82,102,235,0.10);color:var(--accent);
-          display:grid;place-items:center;font-weight:480;font-size:13px;flex:none}
-  .patient-name{font-weight:480;font-size:15px}
-  .patient-meta{color:var(--ink-3);font-size:12px}
-  .ready-pill{margin-left:auto;display:flex;align-items:center;gap:10px}
-  .ready-pill .count{font-size:12px;color:var(--ink-2);font-weight:420;white-space:nowrap}
-  .bar{width:110px;height:6px;border-radius:3px;background:var(--grid);overflow:hidden}
-  .bar>i{display:block;height:100%;background:var(--good);border-radius:3px}
-  .chevron{width:20px;height:20px;display:grid;place-items:center;color:var(--ink-3);font-size:14px;line-height:1;
-           transition:transform .16s,color .16s;flex:none}
-  .patient-card.expanded .chevron{transform:rotate(180deg);color:var(--ink)}
-
-  .items{margin-top:12px}
-  .item{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-top:1px solid var(--grid);cursor:pointer}
-  .item:hover{background:#fbfbf9}
-  .tag{font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;
-       padding:1px 5px;vertical-align:1px;white-space:nowrap}
-  .tag.rec{background:#efeeea;color:#5c5a55}
-  .tag.ai{background:var(--accent-soft);color:var(--accent)}
-  .tag.sim{background:rgba(12,163,12,0.10);color:#0a7a0a}
-  .legend{display:flex;gap:10px;align-items:center;font-size:11px;color:var(--ink-2);margin-left:auto;flex-wrap:wrap}
-  .legend span{display:inline-flex;gap:5px;align-items:center}
-  .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;
-        font-size:11px;font-weight:480;color:var(--ink-2);background:#f4f4f1;flex:none;min-width:92px;justify-content:center}
-  .chip .dot{width:7px;height:7px;border-radius:50%;flex:none}
-  .owner{font-size:11px;color:var(--ink-3);min-width:76px;font-weight:420}
-  .item .title{font-weight:420}
-  .evidence{color:var(--ink);font-size:12px;font-style:normal}
-  .err{color:var(--critical);font-size:12px}
-  .item .right{margin-left:auto;flex:none}
-  button.confirm{font:inherit;font-size:12px;font-weight:480;color:var(--accent);background:var(--surface);
-                 border:1px solid var(--accent);border-radius:999px;padding:4px 14px;cursor:pointer}
-  button.confirm:hover{background:var(--accent-soft)}
-  .escalation{margin-top:6px;padding:8px 10px;border:1px solid var(--hairline);border-left:3px solid var(--accent);
-              border-radius:6px;font-size:12px;color:var(--ink-2);background:var(--accent-soft)}
-
-  .graph-wrap{border-top:1px solid var(--grid);padding:16px 18px 18px;background:var(--surface)}
-  .graph-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:8px}
-  .graph-title{font-size:12px;font-weight:480;color:var(--ink-2)}
-  .legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--ink-3);font-size:10px}
-  .legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
-  .legend i{width:7px;height:7px;border-radius:50%;display:block}
-  .dependency-graph{height:430px;position:relative;isolation:isolate;overflow:hidden}
-  .dependency-lines{position:absolute;inset:0;width:100%;height:100%;z-index:0;overflow:visible}
-  .dependency-lines line{stroke-width:1;vector-effect:non-scaling-stroke;opacity:.26}
-  .graph-hub{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;width:58px;height:58px;
-             border-radius:50%;background:var(--surface);border:1px solid rgba(82,102,235,.52);display:grid;place-items:center}
-  .graph-hub .person{position:relative;width:11px;height:11px;border:1.5px solid var(--accent);border-radius:50%;margin-top:-9px}
-  .graph-hub .person:after{content:"";position:absolute;width:23px;height:12px;left:-7.5px;top:15px;border:1.5px solid var(--accent);
-                           border-bottom:0;border-radius:14px 14px 0 0}
-  .graph-node{--node-color:var(--ink-3);position:absolute;transform:translate(-50%,-50%);z-index:2;width:166px;min-height:62px;
-              border:1px solid var(--hairline);border-left:3px solid var(--node-color);border-radius:10px;background:var(--surface);
-              padding:10px 12px;cursor:pointer;text-align:left;transition:background .12s,border-color .12s}
-  .graph-node:hover,.graph-node:focus-visible{background:#fafaf8;border-color:rgba(11,11,11,.20);border-left-color:var(--node-color);outline:none}
-  .graph-node .node-top{display:flex;align-items:center;justify-content:space-between;gap:7px;margin-bottom:5px}
-  .graph-node .node-owner{font-size:9px;font-weight:600;letter-spacing:.055em;text-transform:uppercase;color:var(--ink-3)}
-  .graph-node .node-title{font-size:12px;line-height:1.3;font-weight:480}
-  .graph-node .node-action{margin-top:7px;font:inherit;font-size:10px;font-weight:530;color:var(--accent);background:transparent;
-                           border:0;padding:0;cursor:pointer}
-  .graph-node.not-started{--node-color:#a5a39c}
-  .graph-node.in-progress{--node-color:var(--warning)}
-  .graph-node.stuck{--node-color:var(--critical)}
-  .graph-node.completed{--node-color:var(--good)}
-  .graph-insights{border-top:1px solid var(--grid);margin-top:6px;padding-top:10px;font-size:11px;color:var(--ink-2)}
-  .graph-insights b{font-weight:480;color:var(--ink)}
-
-  .story h2{display:flex;align-items:baseline;gap:8px}
-  .story h2 .t{margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:420;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .story h2 .t.proj{color:var(--accent)}
-  .counters{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 12px}
-  .counter{background:#f6f6f4;border-radius:8px;padding:8px 10px;min-width:0}
-  .counter .v{font-size:20px;font-weight:530;letter-spacing:-0.01em;line-height:1.1;font-variant-numeric:tabular-nums}
-  .counter .v small{font-size:11px;font-weight:420;color:var(--ink-3)}
-  .counter .l{font-size:10px;color:var(--ink-3);margin-top:2px;line-height:1.25}
-  .lane{padding:10px 0 2px;border-top:1px solid var(--grid)}
-  .lane-head{display:flex;align-items:baseline;gap:8px;font-size:12px;font-weight:480}
-  .lane-head .note{font-size:10px;color:var(--ink-3);font-weight:420}
-  .lane-head .n{margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:420;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .track{position:relative;height:66px;margin:6px 30px 0}
-  .track:before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px dashed var(--grid)}
-  .track .end{position:absolute;top:50%;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:6px;
-              background:#f4f4f1;color:var(--ink-3);display:grid;place-items:center}
-  .track .end svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-  .track .end.bed{left:-26px}
-  .track .end.home{left:calc(100% + 26px)}
-  .track .end.home.lit{background:rgba(12,163,12,0.12);color:#0a7a0a}
-  .av{position:absolute;top:50%;width:30px;height:30px;transform:translate(-50%,-50%);cursor:default;
-      transition:left .6s cubic-bezier(.2,.7,.2,1),margin-top .6s}
-  .av svg{position:absolute;inset:0;width:30px;height:30px;transform:rotate(-90deg)}
-  .av svg circle{fill:none;stroke-width:2.5}
-  .av .ring-bg{stroke:var(--grid)}
-  .av .ring{stroke:var(--warning);transition:stroke-dashoffset .6s}
-  .av.idle .ring{stroke:#a5a39c}
-  .av.home .ring{stroke:var(--good)}
-  .av.blocked .ring{stroke:var(--critical)}
-  .av .ini{position:absolute;inset:5px;border-radius:50%;background:var(--surface);display:grid;place-items:center;
-           font-size:9px;font-weight:530;color:var(--accent);letter-spacing:.02em}
-  .av.home .ini{color:#0a7a0a}
-  .av.blocked .ini{color:var(--critical)}
-  .av.flash .ini{animation:pulse .8s ease-out}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(12,163,12,.5)}100%{box-shadow:0 0 0 14px rgba(12,163,12,0)}}
-  .story-foot{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:10px;border-top:1px solid var(--grid)}
-  .story-foot input[type=range]{flex:1;min-width:0;accent-color:var(--accent)}
-  .story-foot .tl{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:52px;text-align:right}
-  .story-foot button.ghost{padding:5px 12px;font-size:11px}
-  .story .disclaimer{font-size:10.5px;color:var(--ink-3);margin-top:8px;line-height:1.45}
-  .story .disclaimer b{font-weight:480;color:var(--ink-2)}
-  .story .disclaimer a{color:var(--accent);cursor:pointer}
-
-  @media(max-width:900px){
-    .app{grid-template-columns:1fr}.sidebar{display:none}.main{padding:22px 18px}.content{grid-template-columns:1fr}.rail{display:none}
-    .kpis{grid-template-columns:repeat(2,1fr)}.dependency-graph{height:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:104px}
-    .dependency-lines{display:none}.graph-hub{top:18px;transform:translateX(-50%)}
-    .graph-node{position:relative!important;left:auto!important;top:auto!important;transform:none!important;width:auto;min-height:62px}
-  }
-  @media(max-width:560px){.dependency-graph{grid-template-columns:1fr}.graph-toolbar{align-items:flex-start;flex-direction:column}.ready-pill .bar{display:none}}
-
-  #actions{display:flex;flex-direction:column;gap:8px;margin:0 0 14px}
-  .acard{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--hairline);
-         border-left:4px solid var(--accent);border-radius:var(--radius);padding:12px 16px;
-         box-shadow:0 1px 2px rgba(11,11,11,0.03)}
-  .acard .who{font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
-              color:var(--accent);background:var(--accent-soft);border-radius:4px;padding:2px 7px;flex:none}
-  .acard .t{font-weight:480;font-size:14px}
-  .acard .sub{font-size:12px;color:var(--ink-3)}
-  .acard .act{margin-left:auto;flex:none}
-  .acard.done{border-left-color:var(--good);color:var(--ink-2)}
-  .viewbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 14px}
-  .seg{display:inline-flex;background:#efeeea;border-radius:999px;padding:3px}
-  .seg button{font:inherit;font-size:12px;font-weight:480;border:none;background:transparent;border-radius:999px;
-              padding:5px 16px;cursor:pointer;color:var(--ink-2)}
-  .seg button.active{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(11,11,11,0.10)}
-  .ptable{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);overflow:hidden;
-          box-shadow:0 1px 2px rgba(11,11,11,0.03);margin-bottom:14px}
-  .phead,.prow{display:grid;grid-template-columns:230px 230px 1fr 120px;gap:14px;padding:12px 18px;align-items:center}
-  .phead{font-size:10.5px;font-weight:480;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);
-         border-bottom:1px solid var(--grid);padding:10px 18px}
-  .prow{border-top:1px solid var(--grid);border-left:3px solid transparent;cursor:pointer}
-  .prow:first-of-type{border-top:none}
-  .prow:hover{background:#fbfbf9}
-  .prow.sev-bad{border-left-color:var(--critical)}
-  .prow.sev-warn{border-left-color:var(--warning)}
-  .prow.sev-good{border-left-color:var(--good)}
-  .pcol{display:flex;align-items:center;gap:10px;min-width:0}
-  .pcol .nm{font-weight:480;font-size:14px}
-  .pcol .sub{font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .schip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 11px;font-size:12px;font-weight:480}
-  .schip .dot{width:7px;height:7px;border-radius:50%}
-  .schip.bad{background:rgba(208,59,59,0.08);color:#a32f2f}
-  .schip.warn{background:rgba(250,178,25,0.12);color:#7a5605}
-  .schip.good{background:rgba(12,163,12,0.10);color:#0a7a0a}
-  .schip.plain{background:#f4f4f1;color:var(--ink-2)}
-  .need{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--grid);border-radius:999px;
-        padding:2px 10px;font-size:11.5px;color:var(--ink-2);background:var(--surface);margin:2px 6px 2px 0;white-space:nowrap}
-  .need .dot{width:6px;height:6px;border-radius:50%}
-  .need:hover{border-color:rgba(11,11,11,0.22)}
-  .need .more{color:var(--ink-3)}
-  .rlink{font-size:11px;color:var(--ink-3);text-decoration:none;border-bottom:1px dotted var(--grid)}
-  .rlink:hover{color:var(--accent)}
-  .lrow{display:flex;align-items:baseline;gap:10px;padding:10px 18px;border-top:1px solid var(--grid);cursor:pointer;background:var(--surface)}
-  .lrow:hover{background:#fbfbf9}
-  .lrow .q{color:var(--ink-2);font-size:12px}
-  .svc{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--grid)}
-  .svc:first-of-type{border-top:none}
-  .svc .ic{width:28px;height:28px;border-radius:50%;background:rgba(82,102,235,0.10);color:var(--accent);
-           display:grid;place-items:center;font-size:10px;font-weight:480;flex:none}
-  .svc .nm{font-size:13px;font-weight:420}
-  .svc .n{margin-left:auto;font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
-  .svc .n.clear{color:var(--ink-3)}
-
-  .status{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);
-          background:var(--surface);border:1px solid var(--hairline);border-radius:999px;padding:6px 14px}
-  .status.quiet{color:var(--ink-3)}
-  .spin{width:13px;height:13px;border:2px solid var(--accent-soft);border-top-color:var(--accent);
-        border-radius:50%;animation:spin .8s linear infinite;flex:none}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .loading-hero{display:flex;flex-direction:column;align-items:center;gap:16px;padding:110px 0;color:var(--ink-2)}
-  .loading-hero .spin{width:34px;height:34px;border-width:3px}
-  .loading-hero .what{font-size:14px;font-weight:480}
-  .loading-hero .why{font-size:12px;color:var(--ink-3)}
-  #wiretrace{display:flex;flex-direction:column;max-height:340px;overflow:auto}
-  #wiretrace .w{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink-2);
-                display:flex;gap:6px;align-items:baseline;padding:5px 0;border-top:1px solid var(--grid)}
-  #wiretrace .w:first-child{border-top:none}
-  #wiretrace .t{color:var(--ink-3);flex:none;font-variant-numeric:tabular-nums}
-  #wiretrace .m{font-weight:600;flex:none}
-  #wiretrace .m.post{color:var(--accent)}
-  #wiretrace .a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #wiretrace .st{margin-left:auto;flex:none;color:var(--ink-3)}
-  #wiretrace .st.bad{color:var(--critical)}
-</style></head><body>
+:root{--nhs-blue:#005eb8;--nhs-dark:#003087;--nhs-green:#007f3b;--nhs-red:#d5281b;--nhs-amber:#ffb81c;--ink:#212b32;--muted:#4c6272;--line:#d8dde0;--wash:#f0f4f5;--pale:#e8edff;--white:#fff;--shadow:0 5px 18px rgba(33,43,50,.10);font-family:"Frutiger W01",Arial,sans-serif}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:var(--wash);color:var(--ink);font-family:inherit;-webkit-font-smoothing:antialiased}button{font:inherit;cursor:pointer}.app{min-height:100vh}.nhsbar{height:8px;background:var(--nhs-blue)}
+.top{min-height:86px;padding:12px 42px;display:flex;align-items:center;gap:18px;background:var(--white);border-bottom:1px solid var(--line);flex-wrap:wrap}.wordmark{display:flex;align-items:center;gap:14px}.homeward-logo{width:54px;height:54px;display:block}.homeward-logo svg{width:100%;height:100%;display:block}.wordmark h1{font-size:24px;margin:0;color:var(--nhs-dark)}.wordmark p{font-size:13px;color:var(--muted);margin:2px 0 0}.topspace{flex:1}
+.switch{display:flex;gap:8px;flex-wrap:wrap}.switch button{border:2px solid var(--line);background:#fff;padding:8px 12px;font-size:13px;display:flex;align-items:center;gap:8px}.switch button.on{border-color:var(--nhs-blue);background:var(--pale)}.switch i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.patient{display:flex;align-items:center;gap:12px}.patient-avatar{width:48px;height:48px;border-radius:50%;background:#d9e5f5;display:grid;place-items:center;color:var(--nhs-dark);font-weight:700}.patient strong,.patient>span:not(.patient-avatar),.patient>span>span{display:block}.patient strong{font-size:15px}.patient span{font-size:12px;color:var(--muted);margin-top:2px}.allergy{background:#fbeae8;color:var(--nhs-red);font-weight:700;font-size:12px;padding:8px 10px}.allergy.none{background:var(--wash);color:var(--muted)}
+.page{max-width:1500px;margin:0 auto;padding:34px 42px 70px}.intro{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin-bottom:24px}.intro small{display:block;color:var(--nhs-blue);font-size:13px;font-weight:700;margin-bottom:8px}.titleline{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.intro h2{font-size:38px;line-height:1.12;letter-spacing:-.5px;margin:0;max-width:760px}.top-readiness{display:inline-flex;align-items:center;gap:9px;background:#fbeae8;color:var(--nhs-red);font-size:14px;font-weight:700;padding:11px 14px;border-left:5px solid var(--nhs-red)}.top-readiness:before{content:"!";width:25px;height:25px;border-radius:50%;background:var(--nhs-red);color:#fff;display:grid;place-items:center;font-size:16px}.top-readiness.ready{background:#e9f5ed;color:var(--nhs-green);border-left-color:var(--nhs-green)}.top-readiness.ready:before{content:"✓";background:var(--nhs-green)}.top-readiness.reviewing{background:var(--pale);color:var(--nhs-blue);border-left-color:var(--nhs-blue)}.top-readiness.reviewing:before{content:"…";background:var(--nhs-blue)}.intro p{font-size:16px;color:var(--muted);line-height:1.5;max-width:670px;margin:12px 0 0}.doctor{display:flex;align-items:center;gap:12px;min-width:235px;padding-bottom:4px}.doctor-photo{width:50px;height:50px;border-radius:50%;background:#fff;border:2px solid #768692;color:#425563;display:grid;place-items:center}.doctor-photo svg{width:33px;height:33px}.doctor strong,.doctor span{display:block}.doctor strong{font-size:14px}.doctor span{font-size:12px;color:var(--muted);margin-top:3px}
+.journey{background:var(--white);box-shadow:var(--shadow);border-top:6px solid var(--nhs-blue);overflow:hidden}.journey-head{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 28px;border-bottom:1px solid var(--line)}.journey-head h3{font-size:20px;margin:0}.journey-head p{font-size:13px;color:var(--muted);margin:5px 0 0}.status{font-size:13px;font-weight:700;color:var(--nhs-red);padding:8px 11px;background:#fbeae8}.status.reviewing{background:#e8edff;color:var(--nhs-blue)}.status.ready{background:#e9f5ed;color:var(--nhs-green)}
+.route{display:grid;grid-template-columns:230px 1fr 290px;align-items:stretch;min-height:355px}.place{padding:28px 24px;display:flex;flex-direction:column;justify-content:center}.hospital{background:#f7f9fa;border-right:1px solid var(--line)}.home{background:#e9f5ed;border-left:1px solid #b7d7c2}.place-icon{width:64px;height:64px;display:grid;place-items:center;background:var(--white);color:var(--nhs-blue);font-size:34px;font-weight:700;border:1px solid var(--line);margin-bottom:18px}.home .place-icon{color:var(--nhs-green)}.place small{font-size:12px;font-weight:700;color:var(--muted)}.place h4{font-size:22px;margin:5px 0}.place p{font-size:13px;line-height:1.45;color:var(--muted);margin:0}.place .flags{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px}.place .flags span{font-size:11px;padding:3px 7px;background:#fff;border:1px solid var(--line)}.place .flags span.bad{color:var(--nhs-red);border-color:#f0c3bd;background:#fbeae8}.context{margin-top:18px;padding-top:16px;border-top:1px solid #b7d7c2}.context b{font-size:12px;display:block;margin-bottom:8px}.context span{display:block;font-size:12px;line-height:1.55}.context em{font-size:11px;color:var(--muted);font-style:normal;display:block;margin-top:10px}
+.crossing{padding:30px 34px;position:relative;display:flex;flex-direction:column;justify-content:center}.track{height:4px;background:#d8dde0;position:absolute;left:calc(10% - 6px);right:calc(10% - 6px);top:24px;z-index:0}.trackfill{height:100%;width:0;background:var(--nhs-amber);transition:width .5s ease}.journey.complete .trackfill{background:var(--nhs-green)}.gates{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:15px;margin-top:20px}.gate{text-align:center}.gate-mark{width:52px;height:52px;margin:0 auto 12px;background:#fff;border:3px solid #aeb7bd;border-radius:50%;display:grid;place-items:center;font-size:23px;line-height:1;font-weight:700;color:#768692;position:relative;z-index:1;transition:.25s}.gate b{display:block;font-size:13px}.gate span{font-size:11px;color:var(--muted);display:block;margin-top:4px}.gate-state{display:inline-block;margin-top:8px;font-size:10px;font-style:normal;font-weight:700;color:#4c6272}
+.gate.scanning .gate-mark,.gate.actionable .gate-mark{background:#fff4cf;border-color:var(--nhs-amber);color:#5c4200}.gate.blocked .gate-mark{background:#fbeae8;border-color:var(--nhs-red);color:var(--nhs-red)}.gate.cleared .gate-mark{background:var(--nhs-green);border-color:var(--nhs-green);color:#fff}.gate.actionable .gate-state,.gate.scanning .gate-state{color:#5c4200}.gate.blocked .gate-state{color:var(--nhs-red)}.gate.cleared .gate-state{color:var(--nhs-green)}.gate.blocked b{color:var(--nhs-red)}
+.route-legend{display:flex;justify-content:center;gap:20px;flex-wrap:wrap;margin-top:32px}.route-legend span{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px}.route-legend i{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-style:normal;font-weight:700;color:#fff}.route-legend .lg-red{background:var(--nhs-red)}.route-legend .lg-amber{background:var(--nhs-amber);color:#5c4200}.route-legend .lg-green{background:var(--nhs-green)}.route-note{text-align:center;margin:40px auto 0;max-width:600px}.route-note strong{display:block;font-size:20px}.route-note p{font-size:14px;color:var(--muted);line-height:1.45;margin:7px 0 0}
+.actionbar{display:flex;align-items:center;justify-content:space-between;gap:22px;background:#f7f9fa;border-top:1px solid var(--line);padding:20px 28px;flex-wrap:wrap}.actionbar p{font-size:13px;line-height:1.4;color:var(--muted);margin:0;max-width:720px}.actionbar .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.primary{border:0;background:var(--nhs-green);color:#fff;font-weight:700;font-size:16px;padding:14px 21px;min-width:225px;box-shadow:0 3px 0 #004d24}.primary:disabled{background:#768692;box-shadow:none;cursor:default}.secondary{border:2px solid var(--nhs-blue);background:#fff;color:var(--nhs-blue);font-weight:700;padding:11px 15px;text-decoration:none;font-size:14px;display:inline-block}.scan{height:10px;background:#d8dde0;display:none;overflow:hidden}.scan.on{display:block}.scan i{display:block;height:100%;width:35%;background:var(--nhs-blue);animation:scan 1.6s ease-in-out infinite}@keyframes scan{0%{margin-left:-35%}100%{margin-left:100%}}
+.below{display:grid;grid-template-columns:1.35fr .65fr;gap:24px;margin-top:24px}.work,.timeline{background:#fff;box-shadow:var(--shadow);padding:26px 28px}.work h3,.timeline h3{font-size:18px;margin:0}.section-sub{font-size:13px;color:var(--muted);margin:6px 0 20px}.tasks{display:grid;grid-template-columns:repeat(2,1fr);gap:0 22px}.task{display:grid;grid-template-columns:32px 1fr auto;gap:11px;align-items:center;padding:13px 0;border-top:1px solid var(--line);cursor:pointer;text-align:left;background:none;border-left:0;border-right:0;border-bottom:0;width:100%;color:inherit}.task:hover b{color:var(--nhs-blue)}.task-check{width:27px;height:27px;border:2px solid #aeb7bd;display:grid;place-items:center;color:#fff;font-size:13px;font-weight:700}.task.done .task-check{background:var(--nhs-green);border-color:var(--nhs-green)}.task.busy .task-check{border-color:var(--nhs-amber);background:#fff4cf;color:#5c4200}.task.bad .task-check{border-color:var(--nhs-red);background:#fbeae8;color:var(--nhs-red)}.task b{font-size:13px;display:block}.task small{font-size:11px;color:var(--muted);display:block;margin-top:3px}.task.bad small{color:var(--nhs-red)}.task .owner{font-size:11px;color:var(--nhs-blue);font-weight:700}
+.confirmations{margin-top:18px;border-top:3px solid var(--nhs-amber)}.confirm-title{font-size:13px;font-weight:700;padding:13px 0 4px}.confirm{display:grid;grid-template-columns:1fr auto;align-items:center;gap:16px;padding:12px 0;border-top:1px solid var(--line)}.confirm b,.confirm small{display:block}.confirm b{font-size:13px}.confirm small{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.45}.confirm button{border:2px solid var(--nhs-blue);background:#fff;color:var(--nhs-blue);font-weight:700;padding:9px 12px}.confirm.done button{border-color:var(--nhs-green);background:var(--nhs-green);color:#fff;cursor:default}.confirm.sent button{border-color:#768692;color:#768692;cursor:default}
+.clock{margin-top:26px}.clockline{display:grid;grid-template-columns:78px 1fr 80px;gap:12px;align-items:center;margin:15px 0}.clockline strong{font-size:14px}.bar{height:22px;background:#e5e8ea;position:relative}.bar i{height:100%;display:block}.usual i{background:#768692}.fast i{background:var(--nhs-blue)}.clockline span{font-size:12px;color:var(--muted);text-align:right}.saving{margin-top:24px;padding:18px;background:#e9f5ed;border-left:5px solid var(--nhs-green)}.saving.pending{background:var(--pale);border-left-color:var(--nhs-blue)}.saving strong{display:block;font-size:28px;color:var(--nhs-green)}.saving.pending strong{color:var(--nhs-blue)}.saving span{font-size:12px;line-height:1.45;color:var(--muted)}.truth{margin-top:18px;font-size:11px;line-height:1.5;color:var(--muted)}.truth b{color:var(--ink)}
+.pack{margin-top:24px;background:#fff;box-shadow:var(--shadow);border-top:6px solid var(--nhs-dark)}.pack-head{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:23px 28px;border-bottom:1px solid var(--line)}.pack-head h3{font-size:20px;margin:0}.pack-head p{font-size:13px;color:var(--muted);margin:5px 0 0}.draft-state{font-size:12px;font-weight:700;color:var(--nhs-blue);background:#e8edff;padding:8px 11px}.draft-state.sent{color:var(--nhs-green);background:#e9f5ed}
+.pack-grid{display:grid;grid-template-columns:360px 1fr}.meds{padding:25px 28px;background:#f7f9fa;border-right:1px solid var(--line)}.meds h4,.letter h4{font-size:16px;margin:0 0 5px}.meds>p,.letter-top p{font-size:12px;color:var(--muted);line-height:1.45;margin:0}
+.results{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);margin-top:18px}.result{background:#fff;padding:12px}.result small,.result strong{display:block}.result small{font-size:10px;color:var(--muted)}.result strong{font-size:15px;margin-top:3px}.result.flag strong{color:var(--nhs-red)}
+.medicine{margin-top:18px;background:#fff;border-left:5px solid var(--nhs-amber);padding:16px}.medicine.verified{border-left-color:var(--nhs-green)}.medicine strong{font-size:15px;display:block}.medicine dl{display:grid;grid-template-columns:88px 1fr;gap:8px 12px;margin:14px 0 0}.medicine dt{font-size:11px;color:var(--muted)}.medicine dd{font-size:12px;font-weight:700;margin:0}.medicine .med-state{color:#5c4200}.medicine.verified .med-state{color:var(--nhs-green)}.med-note{font-size:11px!important;line-height:1.5!important;margin-top:16px!important;padding-top:14px;border-top:1px solid var(--line)}
+.letter{padding:25px 28px}.letter-top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.letter-patient{margin-top:18px;padding:11px 13px;background:#f0f4f5;font-size:12px}.letter-patient b{font-size:13px}.letter-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;margin-top:16px}.letter-field.full{grid-column:1/-1}.letter label{display:block;font-size:12px;font-weight:700;margin:0 0 7px}.letter textarea{display:block;width:100%;border:2px solid #768692;padding:11px 12px;font:14px/1.45 "Frutiger W01",Arial,sans-serif;color:var(--ink);background:#fff;min-height:96px;resize:vertical}.letter-field.full textarea{min-height:82px}.letter textarea:focus{outline:4px solid #ffdd00;outline-offset:0;border-color:#212b32}.letter-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}.letter-actions button{font-weight:700;padding:11px 15px}.letter-actions button:disabled{opacity:.45;cursor:default}.letter-actions span{font-size:12px;color:var(--muted)}.letter-prov{margin-top:12px;font-size:11px;color:var(--muted)}.letter-prov b{color:var(--ink)}
+.foot{margin-top:24px;font-size:11px;color:var(--muted)}
+.overlay{position:fixed;inset:0;background:rgba(33,43,50,.55);display:none;place-items:center;padding:24px;z-index:50}.overlay.open{display:grid}.panel{background:#fff;width:min(820px,100%);max-height:90vh;overflow:auto;box-shadow:var(--shadow);border-top:6px solid var(--nhs-blue)}.panel header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:20px 24px;border-bottom:1px solid var(--line)}.panel h3{font-size:18px;margin:0}.panel header p{font-size:12px;color:var(--muted);margin:4px 0 0}.ovbody{padding:6px 24px 24px}
+.pi{padding:14px 0;border-top:1px solid var(--line)}.pi:first-child{border-top:0}.pi .row{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.pi .row .own{font-size:11px;color:var(--nhs-blue);font-weight:700}.pi .row b{font-size:14px}.pi .ev{font-size:12px;color:var(--muted);margin-top:4px}.pi .ev code{font-family:ui-monospace,monospace;font-size:11px;background:var(--wash);padding:1px 5px}ol.plan{margin:8px 0 0;padding-left:22px;font-size:13px;line-height:1.55}ol.plan li{margin:3px 0}.kv{display:grid;grid-template-columns:110px 1fr;gap:0 14px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}.kv .k{font-size:12px;color:var(--muted)}.kv .v{line-height:1.5}.err{color:var(--nhs-red)}.tag{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 5px;background:var(--wash);color:var(--muted)}.tag.ai{background:var(--pale);color:var(--nhs-blue)}.tag.sim{background:#e9f5ed;color:var(--nhs-green)}.planfoot{display:flex;align-items:center;gap:14px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}.planfoot .sub{font-size:12px;color:var(--muted)}.grp{margin-top:16px}.grp h4{font-size:13px;margin:0 0 4px}.grp h4 span{color:var(--muted);font-weight:400;font-size:11px;margin-left:8px}.empty{color:var(--muted);font-size:13px;padding:14px 0}
+.call{border:1px solid var(--line);padding:10px 14px;margin-top:8px}.call .say{display:grid;grid-template-columns:18px 62px minmax(0,1fr);gap:8px;align-items:baseline;font-size:13px}.call .ic{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;background:var(--nhs-green);align-self:start;line-height:1}.call.read .ic{background:#aeb7bd}.call.bad .ic{background:var(--nhs-red)}.call .t{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.call .what{font-weight:700}.call.read .what{font-weight:400;color:var(--muted)}.call .out{display:block;color:var(--muted);font-size:12px;margin-top:1px}.call.bad .out{color:var(--nhs-red)}.call.read{padding:5px 14px;border-color:transparent;margin-top:2px}
+details.reqdd{margin:4px 0 0 88px}details.reqdd summary{cursor:pointer;color:var(--nhs-blue);font-size:12px;font-weight:700;list-style:none;display:flex;width:max-content;gap:4px;user-select:none}details.reqdd summary::-webkit-details-marker{display:none}details.reqdd summary::before{content:'▸';font-size:10px}details.reqdd[open] summary::before{content:'▾'}details.reqdd .head{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;margin-top:8px}details.reqdd .head .m{font-weight:700;color:var(--nhs-blue)}details.reqdd .meta{font-size:11px;color:var(--muted);margin-top:8px;word-break:break-all}details.reqdd pre{background:var(--wash);padding:8px 10px;font-size:11px;line-height:1.5;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:4px 0 0}
+@media(max-width:1050px){.intro{flex-direction:column;align-items:flex-start}.route{grid-template-columns:180px 1fr 230px}.crossing{padding-left:20px;padding-right:20px}.gates{gap:7px}.below{grid-template-columns:1fr}.pack-grid{grid-template-columns:300px 1fr}}
+@media(max-width:900px){.route{grid-template-columns:1fr}.hospital,.home{border-left:0;border-right:0}.crossing{padding:34px 24px}.pack-grid{grid-template-columns:1fr}.meds{border-right:0;border-bottom:1px solid var(--line)}}
+@media(max-width:760px){.top{padding:18px}.page{padding:24px 16px}.intro h2{font-size:31px}.track{display:none}.gates{grid-template-columns:1fr}.gate{display:grid;grid-template-columns:50px 1fr;align-items:center;text-align:left;column-gap:12px}.gate-mark{grid-row:1/3;margin:0}.actionbar{align-items:stretch;flex-direction:column}.tasks{grid-template-columns:1fr}.results,.letter-fields{grid-template-columns:1fr}.letter-field.full{grid-column:auto}.doctor{min-width:0}}
+</style>
+</head>
+<body>
 <div class="app">
-  <aside class="sidebar">
-    <div class="brand"><div class="mark">H</div>
-      <div><div class="name">Homeward</div><div class="sub">discharge coordination</div></div></div>
-    <input class="psearch" id="psearch" type="search" placeholder="Find a patient or SIM number"
-           oninput="patFilter=this.value;render(lastState)">
-    <div class="plist-label" id="plistLabel">Patients</div>
-    <div id="plist"></div>
-    <div style="height:10px"></div>
-    <div class="nav-item" onclick="openModal('trace')">Full trace</div>
-    <div class="foot">world <b id="world">—</b><br>sim clock <b id="clock">—</b></div>
-  </aside>
-  <main class="main">
-    <div class="header">
-      <div><h1>Ward round</h1></div>
-      <span id="status"></span>
-    </div>
-    <div class="kpis" id="kpis"></div>
-    <div class="viewbar">
-      <span></span>
-      <span class="legend"><span title="Plan drafted; nothing happens until staff approve it"><i style="background:#a5a39c"></i>Not started</span><span title="Approved; the agent is acting in the owning service, then checking its records after time moves"><i style="background:var(--warning)"></i>In progress</span><span title="Needs a person: a clinical hold, an external decision, or an action that failed"><i style="background:var(--critical)"></i>Stuck</span><span title="Confirmed complete in the owning service's own records"><i style="background:var(--good)"></i>Completed</span></span>
-    </div>
-    <div class="content">
-      <div id="board"></div>
-      <div class="rail">
-        <div class="card story" id="story" style="display:none">
-          <h2>Same ward, twice <span class="t" id="storyClock">—</span></h2>
-          <div class="counters" id="counters"></div>
-          <div class="lane"><div class="lane-head">Today&rsquo;s ward <span class="note">illustrative model</span><span class="n" id="laneBaselineN"></span></div>
-            <div class="track" id="laneBaseline"><span class="end bed" title="in a hospital bed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18V8M3 14h18v4M21 14v-3a2 2 0 0 0-2-2h-8v5M3 18h18"/><circle cx="7" cy="10.5" r="1.6"/></svg></span><span class="end home" title="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5 10v10h5v-5h4v5h5V10"/></svg></span></div></div>
-          <div class="lane"><div class="lane-head">With Homeward <span class="note" id="laneAgentNote">live simulator world</span><span class="n" id="laneAgentN"></span></div>
-            <div class="track" id="laneAgent"><span class="end bed" title="in a hospital bed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18V8M3 14h18v4M21 14v-3a2 2 0 0 0-2-2h-8v5M3 18h18"/><circle cx="7" cy="10.5" r="1.6"/></svg></span><span class="end home" title="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5 10v10h5v-5h4v5h5V10"/></svg></span></div></div>
-          <div class="story-foot"><button class="ghost" id="replayBtn" onclick="replayStory(false)" title="Replay from fit to the model horizon · double-click to follow the live clock again">Replay</button>
-            <input type="range" id="scrub" min="0" max="100" step="1" value="100" oninput="scrubStory(this.value)" aria-label="story time">
-            <span class="tl" id="scrubLabel">now</span></div>
-          <div class="disclaimer" id="storyNote"></div>
-        </div>
+  <div class="nhsbar"></div>
+  <header class="top">
+    <div class="wordmark"><span class="homeward-logo" aria-label="Homeward logo"><svg viewBox="0 0 64 64" role="img" aria-hidden="true"><path d="M8 29 32 8l24 21v27H8Z" fill="#005eb8"/><path d="M20 24v24h8V37h8v11h8V24h-8v7h-8v-7Z" fill="#fff"/><path d="M40 45h12l-5-5 4-4 12 12-12 12-4-4 5-5H40Z" fill="#00a499"/></svg></span><span><h1>Homeward</h1><p>Clinical discharge coordination</p></span></div>
+    <span class="topspace"></span>
+    <div class="switch" id="switch"></div>
+    <div class="patient" id="patientHead"></div>
+    <span class="allergy none" id="allergy">Allergies: not loaded</span>
+  </header>
+  <main class="page">
+    <section class="intro" id="intro"></section>
+    <section class="journey" id="journey" aria-live="polite">
+      <header class="journey-head"><span><h3>The route from hospital to home</h3><p>Each gate must be evidenced in the system that owns it.</p></span><span class="status" id="status"></span></header>
+      <div class="scan" id="scan"><i></i></div>
+      <div class="route">
+        <section class="place hospital" id="placeHospital"></section>
+        <section class="crossing">
+          <div class="gates" id="gates"></div>
+          <div class="route-legend" id="routeLegend"><span><i class="lg-red">!</i>Blocks discharge</span><span><i class="lg-amber">!</i>Action required</span><span><i class="lg-green">✓</i>Verified</span></div>
+          <div class="route-note" id="routeNote"></div>
+        </section>
+        <section class="place home" id="placeHome"></section>
       </div>
+      <footer class="actionbar"><p id="actionText"></p><span class="actions"><button class="secondary" data-act="trace">What the agent did</button><a class="secondary" id="receiptLink" href="#">Receipt</a><button class="primary" id="mainAction" data-act="main"></button></span></footer>
+    </section>
+    <div class="below">
+      <section class="work"><h3>Work required for this journey</h3><p class="section-sub" id="workSub"></p><div class="tasks" id="tasks"></div><div class="confirmations" id="confirmations"></div></section>
+      <section class="timeline" id="timeline"></section>
     </div>
+    <section class="pack">
+      <header class="pack-head"><span><h3>Discharge pack</h3><p>Only information needed for the hospital-to-home handover.</p></span><span class="draft-state" id="draftState"></span></header>
+      <div class="pack-grid">
+        <section class="meds" id="meds"></section>
+        <section class="letter">
+          <div class="letter-top"><span><h4>Discharge letter</h4><p id="letterSub">Drafted by the agent from the record; editable by the responsible clinician. Saved sections are what the agent sends.</p></span><button class="secondary" data-act="refresh" id="refreshLetter">Reset to the agent's draft</button></div>
+          <div class="letter-patient" id="letterPatient"></div>
+          <div class="letter-fields" id="letterFields"></div>
+          <div class="letter-actions"><button class="primary" data-act="save" id="saveLetter">Save draft</button><span id="saveState" aria-live="polite">Not yet saved</span></div>
+          <p class="letter-prov" id="letterProv"></p>
+        </section>
+      </div>
+    </section>
+    <p class="foot" id="foot"></p>
   </main>
 </div>
-<div class="modal-backdrop" id="modal" onclick="if (event.target === this) closeModal()">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modal-head"><div><h2 id="modalTitle"></h2><div class="sub" id="modalSub"></div></div>
-      <div class="legend"><span><span class="tag rec">record</span> from the sim record</span>
-        <span><span class="tag ai">AI</span> model-written</span>
-        <span><span class="tag sim">sim</span> service response</span></div>
-      <button class="confirm" onclick="closeModal()">Close</button></div>
-    <div id="modalBody"></div>
-  </div>
-</div>
+<div class="overlay" id="overlay"><div class="panel" role="dialog" aria-modal="true"><header><div><h3 id="ovTitle"></h3><p id="ovSub"></p></div><button class="secondary" data-act="close">Close</button></header><div class="ovbody" id="ovBody"></div></div></div>
 <script>
-const CAVEATS = ${JSON.stringify(CAVEATS)}
-const caveatFor = (id) => { const e = Object.entries(CAVEATS).find(([k]) => id.endsWith('-' + k)); return e && e[1] }
-const META = {
-  proposed:               { label: 'Not started', color: '#a5a39c' },
-  approved:               { label: 'In progress', color: 'var(--warning)' },
-  resolving:              { label: 'Working',    color: 'var(--warning)' },
-  awaiting_verification:  { label: 'Verifying',  color: 'var(--warning)' },
-  verified:               { label: 'Completed',  color: 'var(--good)' },
-  failed:                 { label: 'Stuck',      color: 'var(--critical)' },
-  clinical_hold:          { label: 'Clinical hold', color: 'var(--critical)' },
-  blocked_human:          { label: 'Human decision', color: 'var(--critical)' },
-}
-const SERVICES = {
-  gp: 'GP Records', hospital: 'Hospital EPR', pharmacy: 'Pharmacy', community: 'Community Care',
-  diagnostics: 'Diagnostics', wearables: 'Home Health', clinician: 'Clinician',
-}
-const OWNER_LABEL = {
-  gp: 'GP', hospital: 'Hospital', pharmacy: 'Pharmacy', community: 'Community',
-  diagnostics: 'Diagnostics', wearables: 'Home Health', clinician: 'Clinician',
-}
-const OPEN = ['approved','resolving','awaiting_verification']
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 const q = (s) => esc(String(s ?? '').replace(/"/g, ''))
-// How the service is named inside a sentence ("acting in the pharmacy").
-const SERVICE_IN_PROSE = {
-  gp: 'GP practice', hospital: 'hospital', pharmacy: 'pharmacy', community: 'community team',
-  diagnostics: 'diagnostics service', wearables: 'home monitoring service', clinician: 'clinician',
+const KINDS = ['clinical-hold', 'medicines', 'bloods', 'device', 'visit', 'summary', 'follow-up', 'care-package']
+const kindOf = (i) => KINDS.find((k) => i.id.endsWith('-' + k)) || 'other'
+const OWNER = { gp: 'GP record', hospital: 'Hospital', pharmacy: 'Pharmacy', community: 'Community', diagnostics: 'Diagnostics', wearables: 'Home Health', clinician: 'Clinician' }
+const SERVICE = { gp: 'GP practice', hospital: 'hospital', pharmacy: 'pharmacy', community: 'community team', diagnostics: 'diagnostics service', wearables: 'home monitoring service', clinician: 'clinician' }
+const WORKING = ['approved', 'resolving', 'awaiting_verification']
+const HUMAN = ['clinical_hold', 'blocked_human']
+const GATES = [
+  { label: 'Clinical', sub: 'Readiness decision', kinds: ['clinical-hold'] },
+  { label: 'Medicines', sub: 'Supply and collection', kinds: ['medicines'] },
+  { label: 'Monitoring', sub: 'Bloods and home watch', kinds: ['bloods', 'device'] },
+  { label: 'Support', sub: 'Visit and home access', kinds: ['visit', 'care-package'] },
+  { label: 'Handover', sub: 'GP letter and follow-up', kinds: ['summary', 'follow-up'] },
+]
+const JOB = { medicines: 'Reconcile discharge medicines', bloods: 'Arrange repeat blood monitoring', device: 'Connect home monitor', visit: 'Book home support visit', summary: 'Send the discharge letter to the GP', 'follow-up': 'Create GP follow-up' }
+const DONE = { medicines: 'Medicines dispensed and collected', bloods: 'Bloods ordered and resulted', device: 'Home monitor connected, first reading received', visit: 'Home support visit completed', summary: 'Discharge letter sent, in the GP inbox', 'follow-up': 'GP follow-up task on the worklist' }
+const CAVEAT = { medicines: 'Collection is recorded; this does not prove adherence or ongoing supply.', bloods: 'Results are available; this does not constitute clinical review of those results.', device: 'A reading was received; this does not confirm sustained monitoring.', visit: 'The visit is completed; this does not confirm ongoing care-package funding.', summary: 'The letter reached the GP inbox; this does not confirm the GP has read it.', 'follow-up': 'The task exists on the GP worklist; this does not confirm the review has happened.', 'clinical-hold': 'Clinician sign-off is a human decision recorded here, not an automated judgement.', 'care-package': 'Escalated to a human decision; nothing here resolves the funding question.' }
+const isHuman = (i) => i.owner === 'clinician' || HUMAN.includes(i.state)
+const simOutage = (i) => i.state === 'failed' && /HTTP (0|5[0-9][0-9])|no response within/.test(i.error || '')
+const jobTitle = (i) => {
+  const k = kindOf(i)
+  if (k === 'summary' && i.draftOnly) return i.state === 'verified' ? 'Discharge letter drafted and held (not sent)' : 'Prepare the discharge letter (held, not sent)'
+  if (i.state === 'verified') return DONE[k] || i.title
+  return JOB[k] || i.proposedAction || i.title
 }
-// One sentence per state: what it means and who is doing what.
-const STATE_HELP = {
-  proposed:              (svc) => 'Not started. Plan drafted; nothing happens until staff approve it.',
-  approved:              (svc) => 'In progress. Approved; the agent will act in the ' + svc + ' on its next round.',
-  resolving:             (svc) => 'In progress. The agent is acting in the ' + svc + ' right now.',
-  awaiting_verification: (svc) => 'In progress. Done in the ' + svc + '; will be checked against its own records once time has moved.',
-  verified:              (svc) => 'Completed. Confirmed in the ' + svc + "'s own records.",
-  failed:                (svc) => 'Stuck. The action could not be completed; a person needs to look at this.',
-  clinical_hold:         (svc) => 'Stuck. Only a clinician can clear this; the agent will not.',
-  blocked_human:         (svc) => 'Stuck. Needs a decision no system can make.',
+const shortState = (i) => {
+  const svc = SERVICE[i.owner] || i.owner
+  if (i.state === 'proposed') return 'Awaiting approval of the plan'
+  if (i.state === 'approved') return 'Approved, not started'
+  if (i.state === 'resolving') return 'Acting now in the ' + svc
+  if (i.state === 'awaiting_verification') return 'Done in the ' + svc + '; verifying after time moves'
+  if (i.state === 'verified') return i.verification ? 'Verified: ' + i.verification.observed : 'Verified'
+  if (i.state === 'failed') return simOutage(i) ? 'Simulator did not respond; a re-run retries it' : 'Failed: ' + (i.error || 'see detail')
+  if (i.state === 'clinical_hold') return 'Clinician confirmation needed'
+  if (i.state === 'blocked_human') return i.escalation ? 'Escalated to ' + i.escalation.responsibleTeam + '; decision pending' : 'External decision needed'
+  return i.state
 }
-const simOutage = (i) => i.state === 'failed' && /HTTP (0|5[0-9][0-9])\b|no response within/.test(i.error || '')
-const stateHelp = (i) => {
-  const h = STATE_HELP[i.state]
-  if (!h) return ''
-  if (simOutage(i)) return 'Stuck. The simulator did not respond (' + esc((i.error || '').match(/HTTP [0-9]+|no response[^)]*/)[0]) + '). Nothing was changed; re-run against the same world to retry.'
-  if (i.state === 'verified' && i.owner === 'clinician' && i.verification) return 'Completed. ' + esc(String(i.verification.observed).replace(/^cleared/, 'Cleared')) + '.'
-  return h(SERVICE_IN_PROSE[i.owner] || i.owner)
+function gateState(items, n) {
+  if (!items.length) return { cls: '', mark: '–', label: 'No barrier found' }
+  if (items.some((i) => i.state === 'failed')) return { cls: 'blocked', mark: '!', label: items.some(simOutage) ? 'Simulator did not respond' : 'Action failed' }
+  if (items.some((i) => i.state === 'clinical_hold')) return { cls: 'blocked', mark: '!', label: 'Clinician confirmation needed' }
+  const bh = items.find((i) => i.state === 'blocked_human')
+  if (bh) return { cls: 'blocked', mark: '!', label: bh.escalation ? 'Escalated, decision pending' : 'External decision needed' }
+  if (items.every((i) => i.state === 'verified')) return { cls: 'cleared', mark: '✓', label: 'Verified' }
+  if (items.some((i) => WORKING.includes(i.state))) return { cls: 'scanning', mark: '…', label: items.some((i) => i.state === 'awaiting_verification') ? 'Verifying' : 'In progress' }
+  if (items.some((i) => i.state === 'proposed')) return { cls: 'actionable', mark: '!', label: 'Action required' }
+  return { cls: '', mark: String(n), label: 'Not checked' }
 }
-const chip = (state) => {
-  const m = META[state] || { label: state, color: 'var(--ink-3)' }
-  const help = STATE_HELP[state] ? STATE_HELP[state]('owning service') : ''
-  return '<span class="chip" title="' + esc(help) + '"><span class="dot" style="background:' + m.color + '"></span>' + m.label + '</span>'
-}
-const GRAPH_STATE = {
-  proposed:              { key: 'not-started', label: 'Not started', color: '#a5a39c' },
-  approved:              { key: 'in-progress', label: 'In progress', color: 'var(--warning)' },
-  resolving:             { key: 'in-progress', label: 'In progress', color: 'var(--warning)' },
-  awaiting_verification: { key: 'in-progress', label: 'In progress', color: 'var(--warning)' },
-  failed:                { key: 'stuck', label: 'Stuck', color: 'var(--critical)' },
-  clinical_hold:         { key: 'stuck', label: 'Stuck', color: 'var(--critical)' },
-  blocked_human:         { key: 'stuck', label: 'Stuck', color: 'var(--critical)' },
-  verified:              { key: 'completed', label: 'Completed', color: 'var(--good)' },
-}
-const graphState = (state) => GRAPH_STATE[state] || GRAPH_STATE.proposed
-let currentView = 'graph'
-let selectedPatient = null
-let patFilter = ''
-function setView(v) { currentView = v; if (lastState) render(lastState) }
-const SHORT = {
-  'clinical-hold': 'Clinical review', medicines: 'Discharge medicines', bloods: 'Blood monitoring',
-  device: 'Home monitoring', visit: 'Home support visit', summary: 'Discharge summary',
-  'follow-up': 'GP follow-up', 'care-package': 'Care package funding',
-}
-const shortTitle = (i) => { const e = Object.entries(SHORT).find(([k]) => i.id.endsWith('-' + k)); return e ? e[1] : i.title.slice(0, 28) }
-const needDot = (st) =>
-  st === 'failed' ? 'var(--critical)' :
-  st === 'blocked_human' || st === 'clinical_hold' ? 'var(--accent)' :
-  ['approved', 'resolving', 'awaiting_verification'].includes(st) ? 'var(--warning)' : '#a5a39c'
-let expandedPatientId = null
-let initialExpansionSet = false
-function togglePatient(id) {
-  expandedPatientId = expandedPatientId === id ? null : id
-  if (lastState) render(lastState)
-}
-const taskTitle = (item) => {
-  const id = item.id.toLowerCase()
-  if (id.endsWith('clinical-hold')) return 'Clinical review'
-  if (id.endsWith('medicines')) return 'Discharge medicines'
-  if (id.endsWith('bloods')) return 'Blood monitoring'
-  if (id.endsWith('device')) return 'Home monitoring'
-  if (id.endsWith('visit')) return 'Home support visit'
-  if (id.endsWith('summary')) return 'Discharge summary'
-  if (id.endsWith('follow-up')) return 'GP follow-up'
-  if (id.endsWith('care-package')) return 'Care package'
-  return item.title
-}
-function graphForPatient(p) {
-  const count = Math.max(p.items.length, 1)
-  const positions = p.items.map((_, index) => {
-    const angle = (-Math.PI / 2) + (index * Math.PI * 2 / count)
-    return { x: 50 + Math.cos(angle) * 33, y: 50 + Math.sin(angle) * 36 }
-  })
-  const lines = p.items.map((i, index) => {
-    const pos = positions[index]
-    return '<line x1="50%" y1="50%" x2="' + pos.x.toFixed(2) + '%" y2="' + pos.y.toFixed(2) +
-      '%" style="stroke:' + graphState(i.state).color + '" />'
-  }).join('')
-  const nodes = p.items.map((i, index) => {
-    const pos = positions[index]
-    const state = graphState(i.state)
-    const label = taskTitle(i)
-    const action = i.state === 'clinical_hold'
-      ? '<button class="node-action" data-id="' + esc(i.id) + '" onclick="event.stopPropagation();clearHold(this.dataset.id)">Confirm reviewed</button>'
-      : (i.state === 'blocked_human' && !i.escalation
-        ? '<button class="node-action" data-id="' + esc(i.id) + '" onclick="event.stopPropagation();escalate(this.dataset.id)">Prepare escalation</button>'
-        : '')
-    return '<div class="graph-node ' + state.key + '" role="button" tabindex="0" data-id="' + esc(i.id) + '" ' +
-      'aria-label="' + q((OWNER_LABEL[i.owner] || i.owner) + ': ' + label + '. ' + state.label) + '" title="' + q(i.title) + '" ' +
-      'style="left:' + pos.x.toFixed(2) + '%;top:' + pos.y.toFixed(2) + '%" ' +
-      'onclick="itemStory(this.dataset.id)" onkeydown="if(event.keyCode===13||event.keyCode===32){event.preventDefault();itemStory(this.dataset.id)}">' +
-      '<div class="node-top"><span class="node-owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span></div>' +
-      '<div class="node-title">' + esc(label) + '</div>' + action + '</div>'
-  }).join('')
-  const insights = (p.insights || []).length
-    ? '<div class="graph-insights"><b>Agent observations:</b> ' + p.insights.map((n) => esc(n.title)).join(' · ') + '</div>'
-    : ''
-  return '<div class="graph-wrap"><div class="graph-toolbar"><span class="graph-title">Discharge dependencies</span>' +
-    '<span class="legend"><span><i style="background:#a5a39c"></i>Not started</span>' +
-    '<span><i style="background:var(--warning)"></i>In progress</span>' +
-    '<span><i style="background:var(--critical)"></i>Stuck</span>' +
-    '<span><i style="background:var(--good)"></i>Completed</span></span></div>' +
-    '<div class="dependency-graph"><svg class="dependency-lines" aria-hidden="true">' + lines + '</svg>' +
-    '<div class="graph-hub" aria-hidden="true"><span class="person"></span></div>' + nodes + '</div>' + insights + '</div>'
-}
-const history = []
-const spark = () => {
-  if (history.length < 2) return ''
-  const max = Math.max(...history, 1)
-  const pts = history.map((v, i) =>
-    (i / (history.length - 1) * 100).toFixed(1) + ',' + (26 - (v / max) * 22).toFixed(1)).join(' ')
-  return '<svg viewBox="0 0 100 30" preserveAspectRatio="none">' +
-    '<polygon points="0,30 ' + pts + ' 100,30" fill="rgba(82,102,235,0.10)"/>' +
-    '<polyline points="' + pts + '" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>'
-}
-const kpi = (key, label, value, hint, extra) =>
-  '<div class="kpi' + (extra ? ' has-spark' : '') + '" role="button" tabindex="0" onclick="openModal(\\'' + key + '\\')" ' +
-  'onkeydown="if (event.key === \\'Enter\\' || event.key === \\' \\') { event.preventDefault(); openModal(\\'' + key + '\\') }">' +
-  '<span class="more">details</span><div class="label">' + label + '</div><div class="value">' + value + '</div>' +
-  (hint ? '<div class="hint">' + hint + '</div>' : '') + (extra || '') + '</div>'
+const first = (p) => (p.name || '').split(' ')[0]
+const initials = (p) => (p.name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('')
+const hhmm = (ms) => new Date(ms).toTimeString().slice(0, 8)
+const rel = (min) => { const m = Math.max(0, Math.round(min)); const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60); return (d ? d + 'd ' : '') + h + 'h ' + String(m % 60).padStart(2, '0') + 'm' }
 
-// --- KPI detail modal: what the agent is doing behind each number ------------
-const CATS = {
-  ward:  { title: 'On the ward',        sub: 'every tracked patient and their full checklist',
-           patients: (s) => s.patients, items: (p) => p.items },
-  ready: { title: 'Ready to discharge', sub: 'patients with every item verified',
-           patients: (s) => s.patients.filter((p) => p.items.length && p.items.every((i) => i.state === 'verified')), items: (p) => p.items },
-  open:  { title: 'Open barriers',      sub: 'items the agent is proposing, working or verifying',
-           patients: (s) => s.patients, items: (p) => p.items.filter((i) => OPEN.includes(i.state)) },
-  human: { title: 'Awaiting a human',   sub: 'clinical holds and external decisions automation must not touch',
-           patients: (s) => s.patients, items: (p) => p.items.filter((i) => i.state === 'clinical_hold' || i.state === 'blocked_human') },
+// What the page says about the whole journey, from the item states alone.
+function readiness(p, s) {
+  const items = p.items
+  const human = items.filter((i) => HUMAN.includes(i.state))
+  const failed = items.filter((i) => i.state === 'failed')
+  const proposed = items.filter((i) => i.state === 'proposed')
+  const working = items.filter((i) => WORKING.includes(i.state))
+  const open = items.filter((i) => i.state !== 'verified').length
+  const ready = items.length && !open
+  const outage = failed.some(simOutage)
+  const R = (o) => o
+  if (p.stage === 'discharged') return R({ badge: 'Discharged home', badgeCls: 'ready', status: 'Discharged in the hospital record', statusCls: 'ready', note: ['Every dependency has evidence', 'The attendance is closed in the hospital record. The receipt keeps the evidence.'], action: 'Discharged', disabled: true, text: 'The discharge is recorded in the hospital EPR.', complete: true })
+  if (ready) return R({ badge: 'Ready for clinical discharge decision', badgeCls: 'ready', status: 'Ready for clinical decision', statusCls: 'ready', note: ['Every dependency now has evidence', 'The responsible clinician can make the discharge decision.'], action: 'Review complete', disabled: true, text: 'The evidence is complete. The final discharge decision remains with the clinician.', complete: true })
+  if (!items.length) return R({ badge: s.busy ? 'Checking the route' : 'Nothing found yet', badgeCls: 'reviewing', status: s.phase || 'Reading the records', statusCls: 'reviewing', note: [s.busy ? 'Checking the records' : 'No barriers found', 'One review reads the hospital, pharmacy, diagnostics, community, home monitoring and GP records.'], action: 'Checking records', disabled: true, text: 'Homeward will surface what it can coordinate and what still requires a person.' })
+  if (proposed.length) return R({ badge: 'Not ready: ' + open + ' outstanding', badgeCls: '', status: 'Not ready: plan awaiting review', statusCls: '', note: [proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + ' can proceed; ' + human.length + ' decision' + (human.length === 1 ? '' : 's') + ' need' + (human.length === 1 ? 's' : '') + ' people', 'Medicines, monitoring, support and handover are coordinated in parallel once the plan is approved.'], action: 'Review plan (' + proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + ')', disabled: false, kind: 'plan', text: 'See the exact steps the agent will take, then approve. Nothing runs before that.' })
+  if (working.length) {
+    const waiting = !s.busy && /approve/i.test(s.phase || '')
+    return R({ badge: 'Not ready: ' + open + ' outstanding', badgeCls: 'reviewing', status: s.busy ? (s.phase || 'Coordinating') : waiting ? 'Approved, waiting to start' : 'Approved, coordinating', statusCls: 'reviewing', note: [s.busy ? (s.phase || 'Coordinating') : waiting ? 'Approved, waiting to start' : 'Coordinating ' + working.length + ' action' + (working.length === 1 ? '' : 's'), waiting ? 'The agent starts once every patient\\u2019s plan is approved.' : 'Each approved step is re-read in the owning service after time moves.'], action: 'Coordinating ' + working.length + ' action' + (working.length === 1 ? '' : 's'), disabled: true, text: 'Approved actions run in parallel; each is verified against the record of the service that owns it.', scanning: s.busy })
+  }
+  if (failed.length) return R({ badge: 'Not ready: ' + failed.length + ' action' + (failed.length === 1 ? '' : 's') + ' failed', badgeCls: '', status: 'Not ready: action failed', statusCls: '', note: [failed.length + ' action' + (failed.length === 1 ? '' : 's') + ' failed', outage ? 'The simulator did not respond; nothing was changed. Re-run against the same world to retry.' : 'Open the task for the error.'], action: 'Re-run required', disabled: true, text: outage ? 'A simulator outage, not a record problem. The re-run retries every failed action with fresh keys.' : 'The failure needs a person to look at it.' })
+  return R({ badge: 'Not ready: ' + human.length + ' confirmation' + (human.length === 1 ? '' : 's') + ' outstanding', badgeCls: '', status: 'Not ready: ' + human.length + ' confirmation' + (human.length === 1 ? '' : 's') + ' remain' + (human.length === 1 ? 's' : ''), statusCls: '', note: ['Operational route verified', 'Homeward has re-read every receiving service. ' + human.map((i) => i.title.split(' — ')[0]).join('; ') + ' remain' + (human.length === 1 ? 's' : '') + ' a named human decision.'], action: 'Awaiting confirmations', disabled: true, text: 'Operational work is verified. Record the named confirmations below.' })
 }
-let lastState = null
-let openKey = null
-const when = (ms) => ms ? new Date(ms).toISOString().slice(0, 16).replace('T', ' ') : ''
-const itemDetail = (i, log) => {
-  const d = []
-  d.push('<b>Status:</b> ' + stateHelp(i))
-  if (i.proposedAction && (i.state === 'proposed' || i.state === 'approved')) d.push('<b>Plan:</b> ' + esc(i.proposedAction))
-  if (i.approval) d.push('<b>Approved</b> by ' + esc(i.approval.by) + (i.approval.at ? ' at ' + when(i.approval.at) : ''))
-  if (i.humanReason) d.push('<b>Why a human:</b> ' + esc(i.humanReason))
-  if (i.resolution) d.push('<b>Agent did:</b> ' + esc(i.resolution.action) + ' &rarr; <code>' + esc(i.resolution.resourceId) + '</code>' +
-    (i.resolution.atSimTime ? ' at ' + when(i.resolution.atSimTime) : '') + ' <code>key ' + esc(i.resolution.idempotencyKey) + '</code>')
-  if (i.verification) d.push('<b>' + (i.verification.passed ? 'Verified:' : 'Checked, not yet:') + '</b> ' + esc(i.verification.observed) +
-    (i.verification.atSimTime ? ' at ' + when(i.verification.atSimTime) : ''))
-  if (i.error) d.push('<b class="err">Error:</b> <span class="err">' + esc(i.error) + '</span>')
-  if (i.escalation) d.push('<b>Escalated to</b> ' + esc(i.escalation.responsibleTeam) + ' &mdash; ' + esc(i.escalation.nextAction) + '<br>' + esc(i.escalation.note))
-  for (const e of i.evidence || []) d.push('<span class="tag rec">record</span> &ldquo;' + q(e.quote) + '&rdquo; <code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code>')
-  const logLines = (log || []).filter((l) => l.includes(i.id)).slice(-3)
-  for (const l of logLines) d.push('<span class="trace">' + esc(l) + '</span>')
-  const wire = ((lastState && lastState.trace) || []).filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id)).slice(-6)
-  for (const t of wire) d.push(wireRow(t, false))
-  return d.length ? '<div class="detail">' + d.map((x) => '<div>' + x + '</div>').join('') + '</div>' : ''
-}
-const prettyJson = (raw) => { try { return JSON.stringify(JSON.parse(raw), null, 1) } catch { return raw } }
-const railWire = (t) =>
-  '<div class="w"><span class="t">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
-  '<span class="m' + (t.method === 'POST' ? ' post' : '') + '">' + esc(t.method) + '</span>' +
-  '<span class="a" title="' + esc(t.action || t.path.split('?')[0]) + '">' + esc(t.headline || t.action || t.path.split('?')[0].replace('/api/', '')) + '</span>' +
-  '<span class="st' + (t.ok ? '' : ' bad') + '">' + (t.status || 'ERR') + '</span></div>'
-const renderRailTrace = (s) =>
-  (document.getElementById('wiretrace').innerHTML =
-    ((s.trace || []).slice(-40).reverse().map(railWire).join('')) || '<div class="empty">No calls yet.</div>')
-// Drop-downs the reader opened stay open across the 1.5s re-render.
+
+let lastState = null, lastText = '', selectedPatient = null, overlayKey = null
+let letterDirty = false, lastLetterJson = ''
 const openIds = new Set()
-document.addEventListener('toggle', (e) => {
-  const el = e.target
-  if (el && el.id) { if (el.open) openIds.add(el.id); else openIds.delete(el.id) }
-}, true)
+document.addEventListener('toggle', (e) => { const el = e.target; if (el && el.id) { if (el.open) openIds.add(el.id); else openIds.delete(el.id) } }, true)
 const restoreOpen = () => { for (const id of openIds) { const el = document.getElementById(id); if (el) el.open = true } }
-const wireId = (t) => 'wire-' + t.at + '-' + String(t.idempotencyKey || t.path).replace(/[^a-z0-9-]/gi, '_')
 const pretty = (v) => { try { return JSON.stringify(v, null, 2) } catch { return String(v) } }
-// The technical line: method, action, HTTP status, what the sim returned.
-const wireTech = (t) =>
-  '<div class="head">' +
-  '<span class="m' + (t.method === 'GET' ? ' get' : '') + '">' + esc(t.method) + '</span>' +
-  '<span class="a">' + esc(t.action || t.path.split('?')[0]) + '</span>' +
-  '<span class="' + (t.ok ? 'ok' : 'fail') + '">' + (t.ok ? 'HTTP ' + t.status : 'FAILED ' + (t.status || '')) + '</span>' +
-  (t.got ? '<span><span class="tag sim">sim</span> ' + esc(t.got) + '</span>' : '') + '</div>'
-// One call, written for a clinician: what the agent did, what came back,
-// and the wire detail behind "Show request".
-const wireRow = (t, withPayload) => {
+const prettyJson = (raw) => { try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return raw } }
+const wireId = (t) => 'wire-' + t.at + '-' + String(t.idempotencyKey || t.path).replace(/[^a-z0-9-]/gi, '_')
+const wireRow = (t) => {
   const write = t.method !== 'GET'
-  const icon = t.ok ? (write ? '&#10003;' : '&middot;') : '&#10005;'
+  const icon = t.ok ? (write ? '✓' : '·') : '✕'
   const sent = t.request !== undefined ? pretty(t.request) : (t.sent ? prettyJson(t.sent) : '')
-  return '<div class="call' + (t.ok ? '' : ' bad') + (write ? '' : ' read') + '">' +
-    '<div class="say"><span class="ic">' + icon + '</span>' +
-    '<span class="t">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
-    '<span><span class="what">' + esc(t.headline || t.action || t.path.split('?')[0]) + '</span>' +
+  return '<div class="call' + (t.ok ? '' : ' bad') + (write ? '' : ' read') + '"><div class="say"><span class="ic">' + icon + '</span>' +
+    '<span class="t" title="real time">' + hhmm(t.at) + '</span><span><span class="what">' + esc(t.headline || t.action || t.path.split('?')[0]) + '</span>' +
     (t.outcome ? '<span class="out">' + esc(t.outcome) + '</span>' : '') + '</span></div>' +
-    (withPayload
-      ? '<details class="reqdd" id="' + wireId(t) + '"><summary>Show request</summary>' + wireTech(t) +
-        (sent ? '<div class="meta" style="margin-top:8px">agent sent:</div><pre style="margin-top:4px">' + esc(sent) + '</pre>' : '') +
-        (t.reply !== undefined ? '<div class="meta" style="margin-top:8px">service replied:</div><pre style="margin-top:4px">' + esc(pretty(t.reply)) + '</pre>' : '') +
-        (t.idempotencyKey ? '<div class="meta">idempotency key · ' + esc(t.idempotencyKey) + '</div>' : '') + '</details>'
-      : '') + '</div>'
+    '<details class="reqdd" id="' + wireId(t) + '"><summary>Show request</summary>' +
+    '<div class="head"><span class="m">' + esc(t.method) + '</span><span>' + esc(t.action || t.path.split('?')[0]) + '</span><span>' + (t.ok ? 'HTTP ' + t.status : 'FAILED ' + (t.status || '')) + '</span>' + (t.got ? '<span><span class="tag sim">sim</span> ' + esc(t.got) + '</span>' : '') + '</div>' +
+    (sent ? '<div class="meta">agent sent:</div><pre>' + esc(sent) + '</pre>' : '') +
+    (t.reply !== undefined ? '<div class="meta">service replied:</div><pre>' + esc(pretty(t.reply)) + '</pre>' : '') +
+    (t.idempotencyKey ? '<div class="meta">idempotency key · ' + esc(t.idempotencyKey) + '</div>' : '') + '</details></div>'
 }
-
-// Once verified, say what is now true rather than repeating the problem.
-const DONE_TITLE = {
-  medicines: 'Discharge medicines dispensed and collected', bloods: 'Post-discharge bloods ordered and resulted',
-  device: 'Home monitoring device connected, first reading received', visit: 'Home support visit completed',
-  summary: 'Discharge summary sent to the GP', 'follow-up': 'GP follow-up task on the practice worklist',
-  'clinical-hold': 'Clinical review confirmed by a clinician',
+const callsFor = (s, i) => (s.trace || []).filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id))
+const patient = (s) => s.patients.find((p) => p.patientId === selectedPatient) || s.patients[0]
+const summaryItem = (p) => p.items.find((i) => kindOf(i) === 'summary')
+const agentDraft = (s, p) => {
+  const it = summaryItem(p)
+  if (!it) return null
+  const saves = callsFor(s, it).filter((t) => t.request && t.request.type === 'save_discharge_summary')
+  return saves.length ? saves[saves.length - 1].request.dischargeSections : null
 }
-const kindOf = (i) => Object.keys(DONE_TITLE).find((k) => i.id.endsWith('-' + k))
-const displayTitle = (i) => {
-  if (i.state !== 'verified') return i.title
-  if (i.draftOnly && kindOf(i) === 'summary') return 'Discharge summary drafted and held (not sent)'
-  return DONE_TITLE[kindOf(i)] || i.title
-}
-const isHuman = (i) => i.owner === 'clinician' || i.state === 'clinical_hold' || i.state === 'blocked_human'
-// "Review plan": every proposed item with the exact steps the agent will take, then Approve.
-const planModal = (p) => {
-  const proposed = p.items.filter((i) => i.state === 'proposed')
-  const humans = p.items.filter((i) => isHuman(i) && i.state !== 'verified')
-  document.getElementById('modalTitle').textContent = 'Plan for ' + p.name
-  document.getElementById('modalSub').textContent = proposed.length + ' proposed action' + (proposed.length === 1 ? '' : 's') +
-    ' · these are the exact steps the agent will take once you approve, and what it will check afterwards'
-  const html = proposed.map((i) =>
-    '<div class="mi"><div class="row">' + chip(i.state) + '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
-    '<span class="title">' + esc(i.title) + '</span></div>' +
-    ((i.evidence || [])[0] ? '<div class="detail"><div><span class="tag rec">record</span> &ldquo;' + q(i.evidence[0].quote) + '&rdquo;</div></div>' : '') +
-    (i.plan && i.plan.length
-      ? '<ol class="plan">' + i.plan.map((step) => '<li>' + esc(step) + '</li>').join('') + '</ol>'
-      : '<div class="detail"><div>' + esc(i.proposedAction || 'No steps described.') + '</div></div>') + '</div>').join('') +
-    (humans.length ? '<div class="group"><h3>Not in this plan <span>the agent will not touch these</span></h3>' +
-      humans.map((i) => '<div class="mi"><div class="row">' + chip(i.state) + '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
-        '<span class="title">' + esc(i.title) + '</span></div><div class="detail"><div>' + esc(i.humanReason || 'Needs a person.') + '</div></div></div>').join('') + '</div>' : '') +
-    (proposed.length
-      ? '<div class="planfoot"><button class="primary" data-p="' + esc(p.patientId) + '" onclick="approvePatient(this.dataset.p);closeModal()">Approve ' + proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + '</button>' +
-        '<span class="sub">Approval starts the agent on these steps only. Time is then advanced and every step is re-checked in the owning service.</span></div>'
-      : '<div class="empty">Nothing is waiting for approval.</div>')
-  document.getElementById('modalBody').innerHTML = html
-}
-function renderModal() { renderModalBody(); restoreOpen() }
-function renderModalBody() {
-  if (!lastState) return
-  const s0 = lastState
-  if (openKey === 'activity') {
-    document.getElementById('modalTitle').textContent = s0.busy ? 'Working…' : 'Current activity'
-    document.getElementById('modalSub').textContent = s0.phase || ''
-    const recent = (s0.trace || []).slice(-15).reverse()
-    document.getElementById('modalBody').innerHTML =
-      '<div class="group"><h3>Most recent simulator calls <span>newest first · live</span></h3>' +
-      (recent.length ? recent.map(wireRow).join('') : '<div class="empty">No calls yet.</div>') + '</div>' +
-      '<div class="group"><h3>Recent activity log</h3>' +
-      (s0.log || []).slice(-8).reverse().map((l) => '<div class="wire">' + esc(l) + '</div>').join('') + '</div>'
-    return
-  }
-  if (openKey === 'trace') {
-    const all = s0.trace || []
-    const writes = all.filter((t) => t.method !== 'GET')
-    document.getElementById('modalTitle').textContent = 'Full agent trace'
-    document.getElementById('modalSub').textContent =
-      all.length + ' simulator calls · ' + writes.length + ' writes · grouped by patient and task · each line says what the agent did and what the service replied; the wire detail is behind Show request'
-    const claimed = new Set()
-    const forItem = (i) => all.filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id)).map((t) => { claimed.add(t); return t })
-    const html = []
-    for (const p0 of s0.patients) {
-      const parts = []
-      for (const i of p0.items) {
-        const rows = forItem(i)
-        if (!rows.length) continue
-        parts.push('<div class="mi"><div class="row">' + chip(i.state) + '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
-          '<span class="title">' + esc(i.title) + '</span></div>' + rows.map((t) => wireRow(t, true)).join('') + '</div>')
-      }
-      const reads = all.filter((t) => !claimed.has(t) && t.method === 'GET' &&
-        (t.path.includes(p0.patientId) || (t.sent || '').includes(p0.patientId)))
-      reads.forEach((t) => claimed.add(t))
-      if (parts.length || reads.length) {
-        html.push('<div class="group"><h3>' + esc(p0.name) + ' <span>' + esc(p0.patientId) + '</span></h3>' + parts.join('') +
-          (reads.length ? '<div class="mi"><div class="row"><span class="owner">reads</span><span class="title">' + reads.length + ' record reads for this patient</span></div>' +
-            reads.map((t) => wireRow(t, false)).join('') + '</div>' : '') + '</div>')
-      }
-    }
-    const rest = all.filter((t) => !claimed.has(t))
-    if (rest.length) {
-      html.push('<div class="group"><h3>Run &amp; world <span>world setup, clock, un-attributed calls</span></h3>' +
-        rest.map((t) => wireRow(t, t.method !== 'GET')).join('') + '</div>')
-    }
-    document.getElementById('modalBody').innerHTML = html.join('') || '<div class="empty">No calls yet.</div>'
-    return
-  }
-  if (openKey && openKey.startsWith('plan:')) {
-    const p0 = s0.patients.find((x) => x.patientId === openKey.slice(5))
-    if (p0) planModal(p0)
-    return
-  }
-  if (openKey && openKey.startsWith('item:')) {
-    const id = openKey.slice(5)
-    let found = null
-    for (const p1 of s0.patients) { const i1 = p1.items.find((x) => x.id === id); if (i1) found = { p: p1, i: i1 } }
-    if (!found) return
-    const { p: p1, i } = found
-    document.getElementById('modalTitle').textContent = i.title
-    document.getElementById('modalSub').innerHTML = esc(p1.name) + ' · ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' · ' + chip(i.state) +
-      '<div class="stmt">' + stateHelp(i) + '</div>'
-    const kv = (k, v) => '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'
-    const parts = []
-    parts.push('<div class="group"><h3>Detected from the record</h3>' +
-      ((i.evidence || []).map((e) =>
-        kv('<span class="tag rec">record</span>', '&ldquo;' + q(e.quote) + '&rdquo; <code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code>')).join('') ||
-        '<div class="empty">Rule-detected from structured state.</div>') + '</div>')
-    parts.push('<div class="group"><h3>Plan &amp; approval</h3>' +
-      (i.proposedAction ? kv('Plan', esc(i.proposedAction)) : '') +
-      (isHuman(i) ? '' : kv('Approval', i.approval ? 'Approved by ' + esc(i.approval.by) : 'Not yet — awaiting staff approval')) +
-      (i.error ? kv('<span class="err">Failed</span>', '<span class="err">' + esc(i.error) + '</span>' + (simOutage(i) ? ' <span style="color:var(--ink-3)">— simulator outage, not a record problem</span>' : '')) : '') +
-      (i.plan && i.plan.length && !i.resolution ? kv('Steps', '<ol class="plan" style="margin:0">' + i.plan.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>') : '') +
-      (i.humanReason ? kv('Needs a human', esc(i.humanReason)) : '') + '</div>')
-    const wire = (s0.trace || []).filter((t) => t.idempotencyKey && t.idempotencyKey.includes(i.id))
-    parts.push('<div class="group"><h3>Agent &harr; ' + (OWNER_LABEL[i.owner] || esc(i.owner)) + ' <span>' + wire.length + ' calls, oldest first</span></h3>' +
-      (wire.length ? wire.map((t) => wireRow(t, true)).join('') : '<div class="empty">No actions sent yet.</div>') + '</div>')
-    if (i.generated) parts.push('<div class="group"><h3>Drafting provenance</h3>' +
-      kv(i.generated === 'model' ? '<span class="tag ai">AI</span>' : '<span class="err">⚠</span>',
-        i.generated === 'model' ? 'The live model wrote the drafted content for this task' : 'Canned fallback used — model unavailable') + '</div>')
-    if (i.verification) parts.push('<div class="group"><h3>Independent verification</h3>' +
-      kv(i.owner === 'clinician' ? '<span class="tag rec">human</span>' : '<span class="tag sim">sim</span>', (i.verification.passed ? '<span style="color:var(--good);font-weight:480">✓ passed</span> — ' : '<span class="err">✗ not yet</span> — ') + esc(i.verification.observed)) +
-      (caveatFor(i.id) ? kv('Does not prove', esc(caveatFor(i.id))) : '') + '</div>')
-    if (i.escalation) parts.push('<div class="group"><h3>Escalation</h3>' +
-      kv(i.escalation.source === 'fallback' ? '<span class="err">⚠ canned</span>' : '<span class="tag ai">AI</span>', '<b>' + esc(i.escalation.responsibleTeam) + '</b> — ' + esc(i.escalation.nextAction)) +
-      kv('Note', esc(i.escalation.note)) + '</div>')
-    document.getElementById('modalBody').innerHTML = parts.join('')
-    return
-  }
-  const cat = CATS[openKey]
-  if (!cat) return
-  const s = lastState
-  document.getElementById('modalTitle').textContent = cat.title
-  document.getElementById('modalSub').textContent = cat.sub
-  const groups = cat.patients(s).map((p) => ({ p, items: cat.items(p) })).filter((g) => openKey === 'ward' || openKey === 'ready' || g.items.length)
-  document.getElementById('modalBody').innerHTML = groups.length ? groups.map((g) =>
-    '<div class="group"><h3>' + esc(g.p.name) + ' <span>' + esc(g.p.patientId) + ' · ' + esc(g.p.stage ?? '?') +
-    (g.p.location ? ' · ' + esc(g.p.location) : '') + ' · ' + g.items.filter((i) => i.state === 'verified').length + ' of ' + g.items.length + ' verified</span></h3>' +
-    (g.items.length ? g.items.map((i) =>
-      '<div class="mi"><div class="row">' + chip(i.state) + '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
-      '<span class="title">' + esc(i.title) + '</span></div>' + itemDetail(i, s.log) + '</div>').join('')
-      : '<div class="empty">No items in this category for this patient.</div>') + '</div>').join('')
-    : '<div class="empty">Nothing here right now.</div>'
-}
-function openModal(key) {
-  openKey = key
-  renderModal()
-  document.getElementById('modal').classList.add('open')
-  document.querySelector('#modal button').focus()
-}
-function closeModal() {
-  openKey = null
-  document.getElementById('modal').classList.remove('open')
-}
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openKey) closeModal() })
+const LETTER_FIELDS = [['reason', 'Reason for admission', true], ['course', 'Clinical course', false], ['diagnoses', 'Diagnoses', false], ['medicationChanges', 'Discharge medicines and changes', false], ['results', 'Pertinent results', false], ['followUp', 'Follow-up and support', false], ['gpActions', 'Actions for the GP practice', true]]
 
 function render(s) {
   lastState = s
-  document.getElementById('world').textContent = s.world
-  document.getElementById('clock').textContent = s.simNow ? new Date(s.simNow).toISOString().slice(0, 16).replace('T', ' ') : '—'
-  document.getElementById('status').innerHTML = s.busy
-    ? '<span class="status" role="button" style="cursor:pointer" onclick="openModal(\\'activity\\')"><span class="spin"></span>' + esc(s.phase || 'Calling the simulator…') + '</span>'
-    : (s.phase ? '<span class="status quiet" role="button" style="cursor:pointer" onclick="openModal(\\'activity\\')">' + esc(s.phase) + '</span>' : '')
-  if (!s.patients.length) {
-    document.getElementById('kpis').innerHTML = ''
-    document.getElementById('board').innerHTML =
-      '<div class="card"><div class="loading-hero"><span class="spin"></span>' +
-      '<div class="what">' + esc(s.phase || 'Setting up the demo world…') + '</div>' +
-      '<div class="why">Live calls against the NHS-SIM simulator — the ward list appears as records load.</div></div></div>'
-    document.getElementById('services').innerHTML = ''
-    renderStory(s)
-    renderRailTrace(s)
+  if (!selectedPatient || !s.patients.some((p) => p.patientId === selectedPatient)) selectedPatient = (s.patients[0] || {}).patientId
+  const p = patient(s)
+  document.getElementById('switch').innerHTML = s.patients.map((x) => {
+    const r = readiness(x, s)
+    const col = r.complete ? 'var(--nhs-green)' : x.items.some((i) => HUMAN.includes(i.state) || i.state === 'failed') ? 'var(--nhs-red)' : 'var(--nhs-amber)'
+    return '<button data-act="select" data-p="' + esc(x.patientId) + '" class="' + (x === p ? 'on' : '') + '"><i style="background:' + col + '"></i>' + esc(x.name) + '</button>'
+  }).join('')
+  document.getElementById('foot').textContent = 'World ' + s.world + ' · sim clock ' + (s.simNow ? new Date(s.simNow).toISOString().slice(0, 16).replace('T', ' ') : '—') + (s.phase ? ' · ' + s.phase : '') + ' · synthetic simulator data (NHS-SIM); every action was executed against the simulator and independently re-read.'
+  if (!p) {
+    document.getElementById('patientHead').innerHTML = ''
+    document.getElementById('intro').innerHTML = '<div><small>Journey home</small><div class="titleline"><h2>Setting up</h2><span class="top-readiness reviewing">' + esc(s.phase || 'Joining the simulator world') + '</span></div><p>The ward list appears as records load.</p></div>'
+    document.getElementById('scan').classList.add('on')
     return
   }
-  const all = s.patients.flatMap((p) => p.items)
-  const ready = s.patients.filter((p) => p.items.length && p.items.every((i) => i.state === 'verified')).length
-  const open = all.filter((i) => OPEN.includes(i.state)).length
-  const human = all.filter((i) => i.state === 'clinical_hold' || i.state === 'blocked_human').length
-  if (history[history.length - 1] !== open) history.push(open)
-  if (history.length > 60) history.shift()
-  document.getElementById('kpis').innerHTML =
-    kpi('ward', 'On the ward', s.patients.length, 'tracked patients') +
-    kpi('ready', 'Ready to discharge', ready, 'every item verified') +
-    kpi('open', 'Agent working', open, 'approved, acting or verifying', spark()) +
-    kpi('human', 'Needs a person', human + all.filter((i) => i.state === 'proposed' || i.state === 'failed').length, 'approvals, holds, decisions, failures')
-  if (openKey) renderModal()
-
-  const proposed = all.filter((i) => i.state === 'proposed').length
-
-  if (!initialExpansionSet && s.patients.length) {
-    expandedPatientId = s.patients[0].patientId
-    initialExpansionSet = true
-  }
-  if (expandedPatientId && !s.patients.some((p) => p.patientId === expandedPatientId)) expandedPatientId = null
-
-  // --- searchable patient sidebar: green ready · red needs human · amber working ---
-  if (!selectedPatient || !s.patients.some((p) => p.patientId === selectedPatient)) selectedPatient = (s.patients[0] || {}).patientId
-  const dotFor = (p) => {
-    const ready = p.items.length && p.items.every((i) => i.state === 'verified')
-    if (ready) return 'var(--good)'
-    if (p.items.some((i) => ['clinical_hold', 'blocked_human', 'failed'].includes(i.state))) return 'var(--critical)'
-    if (p.items.some((i) => ['approved', 'resolving', 'awaiting_verification'].includes(i.state))) return 'var(--warning)'
-    return '#a5a39c'
-  }
-  const flt = patFilter.trim().toLowerCase()
-  const shown = s.patients.filter((p) => !flt || p.name.toLowerCase().includes(flt) || p.patientId.toLowerCase().includes(flt))
-  document.getElementById('plistLabel').textContent = 'Patients · ' + shown.length
-  document.getElementById('plist').innerHTML = shown.map((p) => {
-    const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
-    return '<div class="pat' + (p.patientId === selectedPatient ? ' sel' : '') + '" data-p="' + esc(p.patientId) + '" ' +
-      'onclick="selectedPatient=this.dataset.p;render(lastState)">' +
-      '<div class="avatar">' + initials + '</div><div style="min-width:0"><div class="pn">' + esc(p.name) + '</div>' +
-      '<div class="pm">' + esc(p.patientId) + (p.location ? ' · ' + esc(p.location) : '') + '</div></div>' +
-      '<span class="pdot" style="background:' + dotFor(p) + '"></span></div>'
-  }).join('')
-  const sel = s.patients.find((p) => p.patientId === selectedPatient)
-
-  // --- "Can they go home?" verdict for the selected patient ---
-  const heroFor = (p) => {
-    if (!p) return ''
-    const human = p.items.filter((i) => ['clinical_hold', 'blocked_human', 'failed'].includes(i.state))
-    const proposed = p.items.filter((i) => i.state === 'proposed')
-    const ready = p.items.length && p.items.every((i) => i.state === 'verified')
-    const working = p.items.some((i) => ['approved', 'resolving', 'awaiting_verification'].includes(i.state))
-    const open = p.items.filter((i) => i.state !== 'verified').length
-    let head, cls, note = ''
-    const waitingOthers = working && !p.items.some((i) => ['resolving', 'awaiting_verification'].includes(i.state)) && /approve/i.test(s.phase || '')
-    if (p.stage === 'discharged') { head = 'Discharged'; cls = 'yes'; note = 'Discharged in the hospital record.' }
-    else if (ready) { head = 'Ready for discharge'; cls = 'yes' }
-    else if (human.length) { head = 'Needs a human'; cls = 'no' }
-    else if (proposed.length) { head = 'Plan awaiting review'; cls = 'no'; note = 'Nothing happens until staff review and approve the plan.' }
-    else if (waitingOthers) { head = 'Approved, not started'; cls = 'warn'; note = 'The agent starts once every patient\\'s plan is approved.' }
-    else { head = 'In progress'; cls = 'warn' }
-    const acts = []
-    if (proposed.length) acts.push('<div class="acard"><span class="t">Review the plan</span>' +
-      '<span class="sub">' + proposed.length + ' proposed actions — see the exact steps before approving</span>' +
-      '<span class="act"><button class="primary" data-p="' + esc(p.patientId) + '" onclick="openModal(\\'plan:\\' + this.dataset.p)">Review plan</button></span></div>')
-    for (const i of p.items.filter((x) => x.state === 'clinical_hold'))
-      acts.push('<div class="acard"><span class="t">' + esc(shortTitle(i)) + '</span><span class="sub">clinical decision</span>' +
-        '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="clearHold(this.dataset.id)">Confirm reviewed</button></span></div>')
-    for (const i of p.items.filter((x) => x.state === 'blocked_human'))
-      acts.push(i.escalation
-        ? '<div class="acard done"><span class="t">' + esc(shortTitle(i)) + '</span><span class="sub">escalated to ' + esc(i.escalation.responsibleTeam) + '</span></div>'
-        : '<div class="acard"><span class="t">' + esc(shortTitle(i)) + '</span><span class="sub">external decision</span>' +
-          '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="escalate(this.dataset.id)">Prepare escalation</button></span></div>')
-    const tasks = p.items.map((i) => '<div class="lrow" data-id="' + i.id + '" onclick="itemStory(this.dataset.id)">' + chip(i.state) +
-      '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span><span>' + esc(displayTitle(i)) + '</span>' +
-      '<span style="margin-left:auto;color:var(--ink-3);font-size:11px">what the agent did &rsaquo;</span></div>').join('')
-    const fallback = p.items.some((i) => i.generated === 'fallback')
-    const pr = p.profile || {}
-    const factChip = (label, value, bad, src) => '<span class="fact' + (bad ? ' bad' : '') + '" title="' + esc(src) + '"><b>' + esc(label) + '</b> ' + esc(value) + '</span>'
-    const facts = [
-      factChip('Allergies', (pr.allergies || []).length ? pr.allergies.join(', ') : 'none recorded', !!(pr.allergies || []).length, 'GP record'),
-      ...(pr.facts || []).map((f) => factChip(f.label, f.value, f.bad, f.source)),
-      factChip('Clinician', pr.clinician || 'nobody assigned', !pr.clinician, 'hospital attendance'),
-      ...(pr.gp ? [factChip('GP', pr.gp, false, 'latest GP encounter')] : []),
-      ...((pr.prescriptions || []).map((r) => factChip('Rx', r.drug + ' · ' + r.status, false, 'pharmacy · ' + r.id))),
-    ].join('')
-    const own = pr.ownWords ? '<div class="own"><span class="speaker">In the patient\\'s own words</span>' +
-      '<blockquote>&ldquo;' + q(pr.ownWords.text) + '&rdquo;</blockquote>' +
-      (pr.ownWords.goal ? '<div class="goal">What matters to me: ' + esc(pr.ownWords.goal) + '</div>' : '') +
-      '<div class="src">GP record ' + esc(pr.ownWords.resourceId) + '</div></div>' : ''
-    const refuse = human.length && p.stage !== 'discharged'
-      ? '<div class="refuse">Homeward will not authorise discharge.<span>' + esc(human.map((i) => shortTitle(i)).join(', ')) +
-        (human.length === 1 ? ' remains a named human decision.' : ' remain named human decisions.') + '</span></div>' : ''
-    return '<div class="hero"><div class="verdict ' + cls + '">' + head + '</div>' +
-      '<div class="vsub">' + (ready ? p.items.length + ' of ' + p.items.length + ' verified · clinician decision remains'
-        : open + ' of ' + p.items.length + ' outstanding') + (note ? ' · ' + note : '') +
-      ' · <a class="rlink" href="/receipt?patient=' + esc(p.patientId) + '">Receipt &darr;</a></div>' +
-      (fallback ? '<div class="vwarn">&#9888; Drafted text on this patient used the canned fallback (model unavailable). Read it before relying on it.</div>' : '') +
-      '<div class="facts">' + facts + '</div></div>' +
-      acts.join('') + refuse +
-      '<div class="ptable">' + tasks + '</div>' + own
-  }
-
-  const graphView = () => (sel ? [sel] : []).map((p) => {
-    const done = p.items.filter((i) => i.state === 'verified').length
-    const pct = p.items.length ? Math.round((100 * done) / p.items.length) : 0
-    const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
-    const expanded = true
-    return '<section class="card patient-card' + (expanded ? ' expanded' : '') + '">' +
-      '<button type="button" class="patient-head" data-patient="' + esc(p.patientId) + '" aria-expanded="' + expanded + '" ' +
-      'aria-controls="patient-graph-' + esc(p.patientId) + '" onclick="togglePatient(this.dataset.patient)">' +
-      '<div class="avatar">' + initials + '</div>' +
-      '<div><div class="patient-name">' + esc(p.name) + '</div>' +
-      '<div class="patient-meta">' + esc(p.patientId) + ' · ' + esc(p.stage ?? '?') +
-      (p.location ? ' · ' + esc(p.location) : '') + ' · ' + esc((p.conditions || []).join(', ')) + '</div></div>' +
-      '<div class="ready-pill"><span class="count">' + done + ' of ' + p.items.length + ' verified</span>' +
-      '<span class="bar"><i style="width:' + pct + '%"></i></span><span class="chevron" aria-hidden="true">⌄</span></div></button>' +
-      (expanded ? '<div id="patient-graph-' + esc(p.patientId) + '">' + graphForPatient(p) + '</div>' : '') + '</section>'
-  }).join('')
-
-  const patientStatus = (p) => {
-    const holds = p.items.filter((i) => i.state === 'clinical_hold' || i.state === 'blocked_human')
-    const failed = p.items.some((i) => i.state === 'failed')
-    const ready = p.items.length && p.items.every((i) => i.state === 'verified')
-    const working = p.items.some((i) => ['approved', 'resolving', 'awaiting_verification'].includes(i.state))
-    if (ready) return { cls: 'good', sev: 'sev-good', label: 'Ready to discharge', sub: 'every item verified' }
-    if (failed) return { cls: 'bad', sev: 'sev-bad', label: 'Action failed', sub: 'needs attention' }
-    if (holds.length) return { cls: 'bad', sev: 'sev-bad', label: 'Blocked — needs a human',
-      sub: shortTitle(holds[0]) + ' · ' + (OWNER_LABEL[holds[0].owner] || holds[0].owner) }
-    if (working) return { cls: 'warn', sev: 'sev-warn', label: 'Agent working', sub: 'executing the approved plan' }
-    return { cls: 'plain', sev: '', label: 'Awaiting approval', sub: 'plan proposed' }
-  }
-  const tableView = () => {
-    const rows = s.patients.map((p) => {
-      const st = patientStatus(p)
-      const done = p.items.filter((i) => i.state === 'verified').length
-      const pct = p.items.length ? Math.round((100 * done) / p.items.length) : 0
-      const needs = p.items.filter((i) => i.state !== 'verified')
-      const chips = needs.slice(0, 4).map((i) =>
-        '<span class="need" data-id="' + i.id + '" onclick="event.stopPropagation();itemStory(this.dataset.id)">' +
-        '<span class="dot" style="background:' + needDot(i.state) + '"></span>' + esc(shortTitle(i)) + '</span>').join('') +
-        (needs.length > 4 ? '<span class="need more">+' + (needs.length - 4) + ' more</span>' : '')
-      const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
-      return '<div class="prow ' + st.sev + '" data-patient="' + esc(p.patientId) + '" onclick="selectedPatient=this.dataset.patient;render(lastState)">' +
-        '<div class="pcol"><div class="avatar">' + initials + '</div><div style="min-width:0"><div class="nm">' + esc(p.name) + '</div>' +
-        '<div class="sub">' + esc(p.patientId) + (p.location ? ' · ' + esc(p.location) : '') + '</div></div></div>' +
-        '<div><span class="schip ' + st.cls + '"><span class="dot" style="background:currentColor"></span>' + st.label + '</span>' +
-        '<div class="sub" style="margin-top:4px;font-size:11.5px;color:var(--ink-3)">' + esc(st.sub) + '</div></div>' +
-        '<div>' + (chips || '<span class="sub" style="color:var(--ink-3)">nothing outstanding</span>') + '</div>' +
-        '<div><div style="font-size:13px;font-weight:480">' + done + ' of ' + p.items.length + '</div>' +
-        '<span class="bar" style="width:90px;display:block;margin:5px 0 4px"><i style="width:' + pct + '%"></i></span>' +
-        '<a class="rlink" href="/receipt?patient=' + esc(p.patientId) + '" onclick="event.stopPropagation()">Receipt &darr;</a></div></div>'
+  const pr = p.profile || {}
+  const r = readiness(p, s)
+  document.getElementById('patientHead').innerHTML = '<span class="patient-avatar">' + esc(initials(p)) + '</span><span><strong>' + esc(p.name) + '</strong><span>' + esc(p.patientId) + (p.location ? ', ' + esc(p.location) : '') + (p.stage ? ' · ' + esc(p.stage) : '') + '</span></span>'
+  const al = document.getElementById('allergy')
+  al.textContent = (pr.allergies || []).length ? pr.allergies.join(', ') + ' allergy' : 'No allergy recorded'
+  al.className = 'allergy' + ((pr.allergies || []).length ? '' : ' none')
+  al.title = 'GP record'
+  document.getElementById('intro').innerHTML =
+    '<div><small>Journey home</small><div class="titleline"><h2>' + esc(first(p)) + '\\u2019s discharge plan</h2><span class="top-readiness ' + r.badgeCls + '">' + esc(r.badge) + '</span></div>' +
+    '<p>Homeward checks the whole route, progresses operational work in parallel, and stops where a named professional must decide.</p></div>' +
+    '<div class="doctor"><span class="doctor-photo" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="10" r="6" fill="currentColor"/><path d="M5 29c.7-7 4.4-10.5 11-10.5S26.3 22 27 29" fill="currentColor"/></svg></span><span><strong>' + esc(pr.clinician || 'No clinician assigned') + '</strong><span>' + (pr.clinician ? 'Discharge review · hospital attendance' : 'Attendance has no named clinician') + '</span></span></div>'
+  document.getElementById('journey').classList.toggle('complete', !!r.complete)
+  const st = document.getElementById('status'); st.textContent = r.status; st.className = 'status ' + r.statusCls
+  document.getElementById('scan').classList.toggle('on', !!(s.busy && (r.scanning || !p.items.length || /reading|detect|loading|joining|admitting/i.test(s.phase || ''))))
+  const bad = (pr.facts || []).filter((f) => f.bad)
+  document.getElementById('placeHospital').innerHTML = '<div class="place-icon">H</div><small>Starting point</small><h4>' + esc(p.location || p.stage || 'Hospital') + '</h4>' +
+    '<p>' + esc((p.conditions || []).join(', ') || 'No conditions recorded') + (pr.problems && pr.problems.length ? '. Active problems: ' + esc(pr.problems.join(', ')) : '') + '.</p>' +
+    (bad.length ? '<div class="flags">' + bad.map((f) => '<span class="bad" title="' + esc(f.source) + '">' + esc(f.label) + ' ' + esc(f.value) + '</span>').join('') + '</div>' : '')
+  document.getElementById('placeHome').innerHTML = '<div class="place-icon">⌂</div><small>Destination</small><h4>Home situation</h4>' +
+    '<p>' + (pr.ownWords ? esc(pr.ownWords.text) : 'No personal context on the GP record.') + '</p>' +
+    '<div class="context"><b>What matters to ' + esc(first(p)) + '</b>' + ((p.goals || []).length ? p.goals.map((g) => '<span>' + esc(g) + '</span>').join('') : '<span>No goals recorded.</span>') +
+    ((p.needs || []).length ? '<span style="margin-top:6px">Recorded needs: ' + esc(p.needs.join(', ')) + '</span>' : '') +
+    '<em>Source: patient directory' + (pr.ownWords ? ' and GP personal context record ' + esc(pr.ownWords.resourceId) : '') + '</em></div>'
+  const verified = p.items.filter((i) => i.state === 'verified').length
+  document.getElementById('gates').innerHTML = '<div class="track"><div class="trackfill" style="width:' + (p.items.length ? Math.round(100 * verified / p.items.length) : 0) + '%"></div></div>' +
+    GATES.map((g, n) => {
+      const items = p.items.filter((i) => g.kinds.includes(kindOf(i)))
+      const gs = gateState(items, n + 1)
+      return '<div class="gate ' + gs.cls + '"><span class="gate-mark">' + gs.mark + '</span><b>' + g.label + '</b><span>' + g.sub + '</span><em class="gate-state">' + esc(gs.label) + '</em></div>'
     }).join('')
-    return '<div class="ptable"><div class="phead"><span>Patient</span><span>Discharge status</span><span>What it still needs</span><span>Verified</span></div>' + rows + '</div>'
-  }
-  const listView = () => (sel ? [sel] : []).map((p) => {
-    const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
-    return '<div class="ptable"><div class="lrow" style="cursor:default"><div class="avatar">' + initials + '</div>' +
-      '<span class="nm" style="font-weight:480">' + esc(p.name) + '</span><span class="sub" style="color:var(--ink-3);font-size:11.5px">' +
-      esc(p.patientId) + (p.location ? ' · ' + esc(p.location) : '') + '</span></div>' +
-      p.items.map((i) => '<div class="lrow" data-id="' + i.id + '" onclick="itemStory(this.dataset.id)">' + chip(i.state) +
-        '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span><span>' + esc(i.title) +
-        ((i.evidence || [])[0] ? ' <span class="q">&ldquo;' + q(i.evidence[0].quote) + '&rdquo;</span> <span class="tag rec">record</span>' : '') + '</span></div>').join('') + '</div>'
-  }).join('')
-  document.getElementById('board').innerHTML = heroFor(sel)
+  document.getElementById('routeLegend').hidden = !p.items.length
+  document.getElementById('routeNote').innerHTML = '<strong>' + esc(r.note[0]) + '</strong><p>' + esc(r.note[1]) + '</p>'
+  document.getElementById('actionText').textContent = r.text
+  const btn = document.getElementById('mainAction'); btn.textContent = r.action; btn.disabled = !!r.disabled; btn.dataset.kind = r.kind || ''
+  document.getElementById('receiptLink').href = '/receipt?patient=' + encodeURIComponent(p.patientId)
 
+  const ops = p.items.filter((i) => !isHuman(i))
+  const humans = p.items.filter((i) => isHuman(i))
+  const nFailed = ops.filter((i) => i.state === 'failed').length
+  document.getElementById('workSub').textContent = !p.items.length ? 'Run the review to build an evidence-based coordination plan.' : ops.every((i) => i.state === 'verified') && ops.length ? ops.length + ' actions completed and verified in the receiving systems.' : ops.some((i) => i.state === 'proposed') ? 'Homeward can coordinate these ' + ops.length + ' actions in parallel once the plan is approved.' : nFailed ? nFailed + ' action' + (nFailed === 1 ? '' : 's') + ' failed; ' + ops.filter((i) => i.state === 'verified').length + ' verified. Open a task for the detail.' : 'Approved actions are running; each is verified after time moves.'
+  document.getElementById('tasks').innerHTML = ops.map((i) => {
+    const cls = i.state === 'verified' ? ' done' : i.state === 'failed' ? ' bad' : WORKING.includes(i.state) ? ' busy' : ''
+    const mark = i.state === 'verified' ? '✓' : i.state === 'failed' ? '!' : WORKING.includes(i.state) ? '…' : ''
+    return '<button class="task' + cls + '" data-act="item" data-id="' + esc(i.id) + '"><span class="task-check">' + mark + '</span><span><b>' + esc(jobTitle(i)) + '</b><small>' + esc(shortState(i)) + '</small></span><span class="owner">' + esc(OWNER[i.owner] || i.owner) + '</span></button>'
+  }).join('') || '<div class="empty">No operational work found for this patient.</div>'
+  const pending = humans.filter((i) => i.state !== 'verified')
+  document.getElementById('confirmations').innerHTML = humans.length ? '<div class="confirm-title">' + (pending.length ? pending.length + ' named confirmation' + (pending.length === 1 ? '' : 's') + ' still protect' + (pending.length === 1 ? 's' : '') + ' the final decision' : 'All named confirmations are recorded') + '</div>' +
+    humans.map((i) => {
+      if (i.state === 'clinical_hold') return '<div class="confirm"><span><b>' + esc(i.title) + '</b><small>' + esc(i.humanReason || 'Clinical decision, never automated.') + '</small></span><button data-act="hold" data-id="' + esc(i.id) + '">Record confirmation</button></div>'
+      if (i.state === 'verified') return '<div class="confirm done"><span><b>' + esc(i.title) + '</b><small>' + esc(i.verification ? i.verification.observed : 'Confirmed') + '</small></span><button disabled>Confirmed</button></div>'
+      if (i.escalation) return '<div class="confirm sent"><span><b>' + esc(i.title) + '</b><small>Escalated to ' + esc(i.escalation.responsibleTeam) + ' — ' + esc(i.escalation.nextAction) + (i.escalation.source === 'fallback' ? ' (canned note; model unavailable)' : '') + '. Case stays blocked until they decide.</small></span><button disabled>Escalated</button></div>'
+      return '<div class="confirm"><span><b>' + esc(i.title) + '</b><small>' + esc(i.humanReason || 'External decision the agent must not make.') + '</small></span><button data-act="escalate" data-id="' + esc(i.id) + '">Prepare escalation</button></div>'
+    }).join('') : ''
 
-  renderStory(s)
-}
-// --- The story: the same ward twice ------------------------------------------
-// Lanes are timelines from /state.story. storyT is the sim time the lanes are
-// drawn at (null = follow the live clock). The agent lane is only known up to
-// now; past that it holds and the label says "projected".
-let storyT = null
-let storyAnim = null
-const prevDone = {}
-const RING = 2 * Math.PI * 12.5
-const rel = (ms, fitAt) => {
-  const m = Math.max(0, Math.round((ms - fitAt) / 60000))
-  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60)
-  return '+' + (d ? d + 'd ' : '') + h + 'h ' + String(m % 60).padStart(2, '0') + 'm'
-}
-// Mirrors countersAt() in src/story/story.ts.
-const storyCounters = (patients, t, now) => {
-  const tAgent = Math.min(t, now)
-  let bedsFreed = 0, homeModel = 0, saved = 0
-  for (const p of patients) {
-    const a = p.agent.homeAt, b = p.baseline.homeAt
-    if (a !== null && a <= tAgent) { bedsFreed++; if (b !== null) saved += Math.max(0, b - a) }
-    if (b !== null && b <= t) homeModel++
-  }
-  return { bedsFreed, homeModel, bedHoursSaved: Math.round(saved / 3600000 * 10) / 10 }
-}
-const laneAt = (lane, t) => {
-  const done = lane.items.filter((i) => i.doneAt !== null && i.doneAt <= t).length
-  const home = lane.homeAt !== null && lane.homeAt <= t
-  return { done, total: lane.items.length, home, frac: lane.items.length ? done / lane.items.length : 0 }
-}
-function renderLane(trackId, key, patients, laneOf, t, fitAt, live) {
-  const track = document.getElementById(trackId)
-  const rows = patients.map((p) => ({ p, lane: laneOf(p), at: laneAt(laneOf(p), t) }))
-  // Spread avatars that share a position so none hides another.
-  const groups = {}
-  rows.forEach((r) => { const g = r.at.home ? 'home' : String(Math.round(r.at.frac * 6)); (groups[g] = groups[g] || []).push(r) })
-  const seen = new Set()
-  let homeCount = 0
-  for (const g of Object.values(groups)) {
-    g.forEach((r, idx) => {
-      const id = key + ':' + r.p.patientId
-      seen.add(id)
-      let el = track.querySelector('[data-key="' + id + '"]')
-      if (!el) {
-        el = document.createElement('div')
-        el.className = 'av'
-        el.dataset.key = id
-        el.innerHTML = '<svg viewBox="0 0 30 30" aria-hidden="true"><circle class="ring-bg" cx="15" cy="15" r="12.5"/>' +
-          '<circle class="ring" cx="15" cy="15" r="12.5" stroke-dasharray="' + RING.toFixed(2) + '" stroke-dashoffset="' + RING.toFixed(2) + '"/></svg>' +
-          '<span class="ini">' + esc(r.p.name).split(' ').map((w) => w[0]).slice(0, 2).join('') + '</span>'
-        track.appendChild(el)
-      }
-      const blocked = !!r.lane.blockedBy && !r.at.home
-      const flash = prevDone[id] !== undefined && r.at.done > prevDone[id]
-      prevDone[id] = r.at.done
-      if (r.at.home) homeCount++
-      el.className = 'av' + (r.at.home ? ' home' : blocked ? ' blocked' : r.at.done ? '' : ' idle') + (flash ? ' flash' : '')
-      el.style.left = (r.at.home ? 100 : 5 + r.at.frac * 83).toFixed(1) + '%'
-      el.style.marginTop = ((idx - (g.length - 1) / 2) * 18).toFixed(0) + 'px'
-      el.querySelector('.ring').setAttribute('stroke-dashoffset', (RING * (1 - r.at.frac)).toFixed(2))
-      el.title = r.p.name + ' · ' + r.at.done + ' of ' + r.at.total + ' done' +
-        (r.at.home ? ' · home ' + rel(r.lane.homeAt, fitAt) : blocked ? ' · waiting on a human decision' : (live && t > 0 ? '' : '')) +
-        (r.lane.missedPolls ? ' · ' + r.lane.missedPolls + ' missed inbox check' + (r.lane.missedPolls > 1 ? 's' : '') : '')
-    })
-  }
-  track.querySelectorAll('.av').forEach((el) => { if (!seen.has(el.dataset.key)) el.remove() })
-  track.querySelector('.end.home').classList.toggle('lit', homeCount > 0)
-  return homeCount
-}
-function renderStory(s) {
-  const st = s.story
-  const card = document.getElementById('story')
-  if (!st || !st.patients.length) { card.style.display = 'none'; return }
-  card.style.display = ''
-  const t = storyT === null ? st.now : Math.min(Math.max(storyT, st.fitAt), st.horizon)
-  const clock = document.getElementById('storyClock')
-  clock.textContent = rel(t, st.fitAt) + (t > st.now ? ' · projected' : t < st.now ? ' · replay' : ' · now')
-  clock.className = 't' + (t > st.now ? ' proj' : '')
-  const c = storyCounters(st.patients, t, st.now)
-  document.getElementById('counters').innerHTML =
-    '<div class="counter" title="beds the agent world has freed"><div class="v">' + c.bedsFreed + '</div><div class="l">beds freed</div></div>' +
-    '<div class="counter" title="for each bed freed: when the manual model would free it, minus when the agent did"><div class="v">' + c.bedHoursSaved + '<small> h</small></div><div class="l">bed-hours saved<br>vs model</div></div>' +
-    '<div class="counter" title="patients home: agent world / manual model"><div class="v">' + c.bedsFreed + '<small> / ' + c.homeModel + '</small></div><div class="l">home<br>agent / model</div></div>'
-  const nB = renderLane('laneBaseline', 'b', st.patients, (p) => p.baseline, t, st.fitAt, false)
-  const nA = renderLane('laneAgent', 'a', st.patients, (p) => p.agent, Math.min(t, st.now), st.fitAt, true)
-  document.getElementById('laneBaselineN').textContent = nB + ' of ' + st.patients.length + ' home'
-  document.getElementById('laneAgentN').textContent = nA + ' of ' + st.patients.length + ' home'
-  document.getElementById('laneAgentNote').textContent = t > st.now ? 'live world · as of now' : 'live simulator world'
-  const scrub = document.getElementById('scrub')
-  scrub.min = st.fitAt; scrub.max = st.horizon; scrub.step = 60000
-  if (document.activeElement !== scrub) scrub.value = t
-  document.getElementById('scrubLabel').textContent = storyT === null ? 'now' : rel(t, st.fitAt)
-  const pm = st.params.pollMinutes
-  document.getElementById('storyNote').innerHTML =
-    '<b>Today&rsquo;s ward</b> is an illustrative model, not a measurement: the same checklist, each team checking its inbox on its own cadence ' +
-    '(pharmacy ' + pm.pharmacy + ' min, results ' + pm.diagnostics + ', letter ' + pm.hospital + ', community ' + pm.community + ', GP ' + pm.gp + '), ' +
-    'jobs started one after another, ' + Math.round(st.params.dropProbability * 100) + '% of checks missing the job, discharge at the next ward round. ' +
-    '<b>With Homeward</b> is what the agent actually did in the simulator, read back and verified. Patients are synthetic.'
-}
-function scrubStory(v) {
-  if (storyAnim) { cancelAnimationFrame(storyAnim); storyAnim = null }
-  storyT = Number(v)
-  if (lastState) renderStory(lastState)
-}
-function replayStory(loop) {
-  const st = lastState && lastState.story
-  if (!st) return
-  if (storyAnim) cancelAnimationFrame(storyAnim)
-  const from = st.fitAt, to = st.horizon, duration = 12000
-  const start = performance.now()
-  const step = (ts) => {
-    const k = Math.min(1, (ts - start) / duration)
-    storyT = from + (to - from) * k
-    if (lastState) renderStory(lastState)
-    if (k < 1) storyAnim = requestAnimationFrame(step)
-    else { storyAnim = null; if (loop) setTimeout(() => replayStory(true), 2500) }
-  }
-  storyAnim = requestAnimationFrame(step)
-}
-document.getElementById('replayBtn').addEventListener('dblclick', () => { storyT = null; if (storyAnim) cancelAnimationFrame(storyAnim); storyAnim = null; if (lastState) renderStory(lastState) })
-// ?attract=1 loops the replay for passers-by at the stall.
-if (new URLSearchParams(location.search).get('attract')) {
-  const waitForStory = setInterval(() => { if (lastState && lastState.story && lastState.story.patients.length) { clearInterval(waitForStory); replayStory(true) } }, 1000)
+  renderTimeline(s, p)
+  renderPack(s, p)
+  if (overlayKey) renderOverlay()
+  restoreOpen()
 }
 
-let lastText = ''
-async function tick() {
+function renderTimeline(s, p) {
+  const el = document.getElementById('timeline')
+  const sp = ((s.story || {}).patients || []).find((x) => x.patientId === p.patientId)
+  const fitAt = (s.story || {}).fitAt || s.fitAt
+  if (!sp || !fitAt) { el.innerHTML = '<h3>Why coordination matters</h3><p class="section-sub">Timing appears once the run has started.</p>'; return }
+  const usual = sp.baseline.homeAt ? (sp.baseline.homeAt - fitAt) / 60000 : null
+  const home = sp.agent.homeAt
+  const hw = (home ? home - fitAt : Math.max(0, s.simNow - fitAt)) / 60000
+  const max = Math.max(usual || 0, hw, 1)
+  const saved = home && usual ? usual - hw : null
+  el.innerHTML = '<h3>Why coordination matters</h3><p class="section-sub">Independent waits run together once the plan is approved.</p>' +
+    '<div class="clock"><div class="clockline"><strong>Usual</strong><div class="bar usual"><i style="width:' + (usual ? Math.round(100 * usual / max) : 0) + '%"></i></div><span>' + (usual ? rel(usual) : 'blocked') + '</span></div>' +
+    '<div class="clockline"><strong>Homeward</strong><div class="bar fast"><i style="width:' + Math.round(100 * hw / max) + '%"></i></div><span>' + rel(hw) + (home ? '' : ' so far') + '</span></div></div>' +
+    (saved !== null
+      ? '<div class="saving"><strong>' + rel(saved) + ' sooner</strong><span>Time from medically fit to the bed being freed, agent world versus the manual-ward model. Coordination time, not a claim about outcomes.</span></div>'
+      : '<div class="saving pending"><strong>' + (sp.agent.blockedBy ? 'Waiting on a person' : 'In progress') + '</strong><span>' + (usual ? 'The manual-ward model frees this bed at ' + rel(usual) + '.' : 'The manual-ward model never frees this bed without a human decision either.') + '</span></div>') +
+    '<p class="truth"><b>Usual</b> is an illustrative model, not a measurement: the same checklist, each team checking its inbox on its own cadence, jobs one after another. <b>Homeward</b> is what the agent actually did in the simulator, read back and verified. <b>Clinical boundary:</b> the responsible clinician retains the discharge decision.</p>'
+}
+
+function renderPack(s, p) {
+  const pr = p.profile || {}
+  const med = p.items.find((i) => kindOf(i) === 'medicines')
+  const facts = pr.facts || []
+  document.getElementById('meds').innerHTML = '<h4>Medicines and key results</h4><p>Read from the record; every value names its source.</p>' +
+    (facts.length ? '<div class="results" aria-label="Pertinent results">' + facts.map((f) => '<div class="result' + (f.bad ? ' flag' : '') + '" title="' + esc(f.source) + '"><small>' + esc(f.label) + '</small><strong>' + esc(f.value) + '</strong></div>').join('') + '</div>' : '<div class="empty">No results or flags on the record.</div>') +
+    ((pr.prescriptions || []).map((rx) => {
+      const ok = rx.status === 'collected'
+      const state = rx.status === 'collected' ? 'Collected' + (med && med.state === 'verified' ? ', verified in the pharmacy record' : '') : rx.status === 'dispensed' ? 'Dispensed, not yet collected' : rx.status === 'approved' ? 'Approved, not yet dispensed' : rx.status
+      return '<article class="medicine' + (ok ? ' verified' : '') + '"><strong>' + esc(rx.drug) + '</strong><dl><dt>Purpose</dt><dd>Discharge supply</dd><dt>Supply</dt><dd class="med-state">' + esc(state) + '</dd><dt>Dose</dt><dd>Not specified in the simulator</dd></dl></article>'
+    }).join('') || '<div class="empty" style="margin-top:14px">No prescription for this patient in the pharmacy record.</div>') +
+    '<p class="med-note">Homeward does not infer a dose. The prescriber must confirm it before the letter is finalised.<br><br>Source: pharmacy record' + ((pr.prescriptions || []).length ? ' ' + esc(pr.prescriptions.map((x) => x.id).join(', ')) : '') + (facts.length ? '; ' + esc([...new Set(facts.map((f) => f.source.split(' · ')[0]))].join(', ')) : '') + '.</p>'
+  const it = summaryItem(p)
+  const draft = agentDraft(s, p)
+  const src = (p.letter && p.letter.sections) || draft
+  const sent = it && it.state === 'verified' && !it.draftOnly
+  const ds = document.getElementById('draftState')
+  ds.textContent = sent ? 'Sent to the GP · verified in the inbox' : it && it.draftOnly && it.state === 'verified' ? 'Draft held (case blocked)' : p.letter ? 'Clinician draft saved · sent when the plan runs' : draft ? 'Agent draft' : 'Not drafted yet'
+  ds.className = 'draft-state' + (sent ? ' sent' : '')
+  document.getElementById('letterPatient').innerHTML = '<b>' + esc(p.name) + '</b> &nbsp; ' + esc(p.patientId) + (p.location ? ' &nbsp; ' + esc(p.location) : '')
+  document.getElementById('letterProv').innerHTML = it && it.generated ? '<b>Provenance:</b> ' + (it.generated === 'model' ? 'sections written by the live model from the record' : it.generated === 'clinician' ? 'sections edited and saved by a clinician in Homeward' : 'canned fallback text (model unavailable) — read before relying on it') : (p.letter ? '<b>Provenance:</b> clinician draft saved by ' + esc(p.letter.editedBy) : '')
+  document.getElementById('refreshLetter').disabled = !draft
+  const json = JSON.stringify(src || null)
+  if (!letterDirty && json !== lastLetterJson) {
+    lastLetterJson = json
+    document.getElementById('letterFields').innerHTML = LETTER_FIELDS.map(([k, label, full]) =>
+      '<div class="letter-field' + (full ? ' full' : '') + '"><label for="lf-' + k + '">' + label + '</label><textarea id="lf-' + k + '" data-k="' + k + '" spellcheck="true" placeholder="' + (src ? '' : 'Drafted by the agent once the plan is approved') + '">' + esc(src ? src[k] || '' : '') + '</textarea></div>').join('')
+    document.getElementById('saveState').textContent = p.letter ? 'Saved by ' + p.letter.editedBy : 'Not yet saved'
+  }
+  document.getElementById('saveLetter').disabled = false
+}
+
+// --- overlays: the plan, a task, the trace --------------------------------
+function openOverlay(key) { overlayKey = key; renderOverlay(); document.getElementById('overlay').classList.add('open') }
+function closeOverlay() { overlayKey = null; document.getElementById('overlay').classList.remove('open') }
+function renderOverlay() {
+  const s = lastState; if (!s) return
+  const p = patient(s)
+  const T = document.getElementById('ovTitle'), U = document.getElementById('ovSub'), B = document.getElementById('ovBody')
+  const row = (i) => '<div class="row"><span class="own">' + esc(OWNER[i.owner] || i.owner) + '</span><b>' + esc(i.title) + '</b></div>'
+  if (overlayKey === 'plan') {
+    const proposed = p.items.filter((i) => i.state === 'proposed')
+    const humans = p.items.filter((i) => isHuman(i) && i.state !== 'verified')
+    T.textContent = 'Plan for ' + p.name
+    U.textContent = proposed.length + ' proposed action' + (proposed.length === 1 ? '' : 's') + ' · the exact steps the agent will take once you approve, and what it will check afterwards'
+    B.innerHTML = proposed.map((i) => '<div class="pi">' + row(i) +
+      ((i.evidence || [])[0] ? '<div class="ev"><span class="tag">record</span> \\u201c' + q(i.evidence[0].quote) + '\\u201d <code>' + esc(i.evidence[0].site + ' ' + i.evidence[0].resourceId) + '</code></div>' : '') +
+      (i.plan && i.plan.length ? '<ol class="plan">' + i.plan.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>' : '<div class="ev">' + esc(i.proposedAction || '') + '</div>') + '</div>').join('') +
+      (humans.length ? '<div class="grp"><h4>Not in this plan<span>the agent will not touch these</span></h4>' + humans.map((i) => '<div class="pi">' + row(i) + '<div class="ev">' + esc(i.humanReason || 'Needs a person.') + '</div></div>').join('') + '</div>' : '') +
+      (proposed.length ? '<div class="planfoot"><button class="primary" data-act="approve" data-p="' + esc(p.patientId) + '">Approve ' + proposed.length + ' action' + (proposed.length === 1 ? '' : 's') + '</button><span class="sub">Approval starts the agent on these steps only. Time is then advanced and every step is re-checked in the owning service.</span></div>' : '<div class="empty">Nothing is waiting for approval.</div>')
+    return
+  }
+  if (overlayKey === 'trace') {
+    const all = s.trace || []
+    T.textContent = 'What the agent did'
+    U.textContent = all.length + ' simulator calls · each line says what the agent did and what the service replied; the wire detail is behind Show request'
+    const claimed = new Set()
+    const parts = []
+    for (const p0 of s.patients) {
+      const items = p0.items.map((i) => ({ i, rows: callsFor(s, i).map((t) => { claimed.add(t); return t }) })).filter((x) => x.rows.length)
+      if (items.length) parts.push('<div class="grp"><h4>' + esc(p0.name) + '<span>' + esc(p0.patientId) + '</span></h4>' + items.map((x) => '<div class="pi">' + row(x.i) + x.rows.map(wireRow).join('') + '</div>').join('') + '</div>')
+    }
+    const rest = all.filter((t) => !claimed.has(t) && t.method !== 'GET')
+    if (rest.length) parts.push('<div class="grp"><h4>Run &amp; world<span>setup, clock, un-attributed writes</span></h4>' + rest.map(wireRow).join('') + '</div>')
+    const reads = all.filter((t) => !claimed.has(t) && t.method === 'GET').length
+    if (reads) parts.push('<div class="empty">' + reads + ' record reads not shown.</div>')
+    B.innerHTML = parts.join('') || '<div class="empty">No calls yet.</div>'
+    return
+  }
+  if (overlayKey && overlayKey.indexOf('item:') === 0) {
+    const i = p.items.find((x) => x.id === overlayKey.slice(5)); if (!i) return
+    const kv = (k, v) => '<div class="kv"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'
+    T.textContent = jobTitle(i)
+    U.textContent = p.name + ' · ' + (OWNER[i.owner] || i.owner) + ' · ' + shortState(i)
+    const calls = callsFor(s, i)
+    B.innerHTML = '<div class="grp"><h4>Detected from the record</h4>' + ((i.evidence || []).map((e) => kv('<span class="tag">record</span>', '\\u201c' + q(e.quote) + '\\u201d <code>' + esc(e.site + ' ' + e.resourceId) + '</code>')).join('') || '<div class="empty">Rule-detected from structured state.</div>') + '</div>' +
+      '<div class="grp"><h4>Plan</h4>' + (i.proposedAction ? kv('Intent', esc(i.proposedAction)) : '') +
+      (isHuman(i) ? kv('Needs a human', esc(i.humanReason || '')) : kv('Approval', i.approval ? 'Approved by ' + esc(i.approval.by) : 'Not yet — awaiting staff approval')) +
+      (i.plan && i.plan.length ? kv('Steps', '<ol class="plan" style="margin:0">' + i.plan.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>') : '') +
+      (i.error ? kv('<span class="err">Failed</span>', '<span class="err">' + esc(i.error) + '</span>' + (simOutage(i) ? ' — simulator outage, not a record problem' : '')) : '') + '</div>' +
+      '<div class="grp"><h4>Agent \\u2194 ' + esc(OWNER[i.owner] || i.owner) + '<span>' + calls.length + ' calls, oldest first · times are real clock</span></h4>' + (calls.map(wireRow).join('') || '<div class="empty">No actions sent yet.</div>') + '</div>' +
+      (i.generated ? '<div class="grp"><h4>Drafting provenance</h4>' + kv(i.generated === 'model' ? '<span class="tag ai">AI</span>' : i.generated === 'clinician' ? '<span class="tag">human</span>' : '<span class="err">⚠</span>', i.generated === 'model' ? 'The live model wrote the drafted content' : i.generated === 'clinician' ? 'A clinician edited and saved the content in Homeward' : 'Canned fallback used — model unavailable') + '</div>' : '') +
+      (i.verification ? '<div class="grp"><h4>Independent verification</h4>' + kv(i.owner === 'clinician' ? '<span class="tag">human</span>' : '<span class="tag sim">sim</span>', (i.verification.passed ? '<b style="color:var(--nhs-green)">✓ passed</b> — ' : '<span class="err">✗ not yet</span> — ') + esc(i.verification.observed) + ' <span style="color:var(--muted)">(sim clock ' + esc(new Date(i.verification.atSimTime).toISOString().slice(0, 16).replace('T', ' ')) + ')</span>') + (CAVEAT[kindOf(i)] ? kv('Does not prove', esc(CAVEAT[kindOf(i)])) : '') + '</div>' : '') +
+      (i.escalation ? '<div class="grp"><h4>Escalation</h4>' + kv(i.escalation.source === 'fallback' ? '<span class="err">⚠ canned</span>' : '<span class="tag ai">AI</span>', '<b>' + esc(i.escalation.responsibleTeam) + '</b> — ' + esc(i.escalation.nextAction)) + kv('Note', esc(i.escalation.note)) + '</div>' : '')
+  }
+}
+
+// --- actions ----------------------------------------------------------------
+const post = async (path) => { await fetch(path, { method: 'POST' }); await tick(true) }
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest('[data-act]'); if (!el) return
+  const act = el.dataset.act
+  if (act === 'select') { selectedPatient = el.dataset.p; letterDirty = false; lastLetterJson = ''; if (lastState) render(lastState) }
+  else if (act === 'main') { if (el.dataset.kind === 'plan') openOverlay('plan') }
+  else if (act === 'trace') openOverlay('trace')
+  else if (act === 'item') openOverlay('item:' + el.dataset.id)
+  else if (act === 'close') closeOverlay()
+  else if (act === 'approve') { closeOverlay(); await post('/approve?patient=' + encodeURIComponent(el.dataset.p)) }
+  else if (act === 'hold') { el.disabled = true; await post('/clear-hold?item=' + encodeURIComponent(el.dataset.id)) }
+  else if (act === 'escalate') { el.textContent = 'Drafting…'; el.disabled = true; await post('/escalate?item=' + encodeURIComponent(el.dataset.id)) }
+  else if (act === 'refresh') { const d = lastState && agentDraft(lastState, patient(lastState)); if (d) { for (const [k] of LETTER_FIELDS) { const t = document.getElementById('lf-' + k); if (t) t.value = d[k] || '' } letterDirty = true; document.getElementById('saveState').textContent = 'Reset to the agent\\u2019s draft, not saved' } }
+  else if (act === 'save') {
+    const sections = {}; for (const [k] of LETTER_FIELDS) { const t = document.getElementById('lf-' + k); sections[k] = t ? t.value : '' }
+    const p = patient(lastState)
+    const res = await fetch('/letter?patient=' + encodeURIComponent(p.patientId), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sections }) })
+    const it = summaryItem(p)
+    document.getElementById('saveState').textContent = res.ok ? (it && it.state === 'verified' && !it.draftOnly ? 'Saved as an amendment; re-sending is not automated' : 'Saved — the agent sends these sections') : 'Save failed'
+    letterDirty = false; lastLetterJson = ''
+    await tick(true)
+  }
+})
+document.getElementById('overlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeOverlay() })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlayKey) closeOverlay() })
+document.getElementById('letterFields').addEventListener('input', () => { letterDirty = true; document.getElementById('saveState').textContent = 'Unsaved changes' })
+
+async function tick(force) {
   try {
     const text = await (await fetch('/state')).text()
-    if (text === lastText) return
+    if (!force && text === lastText) return
     lastText = text
     render(JSON.parse(text))
   } catch {}
-}
-function itemStory(id) { openModal('item:' + id) }
-async function clearHold(id) { await fetch('/clear-hold?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
-async function approve() { await fetch('/approve', { method: 'POST' }); tick() }
-async function approvePatient(p) { await fetch('/approve?patient=' + encodeURIComponent(p), { method: 'POST' }); tick() }
-async function escalate(id) {
-  const btn = event?.target
-  if (btn) { btn.textContent = 'Drafting…'; btn.disabled = true }
-  await fetch('/escalate?item=' + encodeURIComponent(id), { method: 'POST' })
-  tick()
 }
 setInterval(tick, 1500); tick()
 </script></body></html>`
@@ -1267,6 +541,16 @@ export function startUi(board: BoardState, port = 4600): Server {
       res.setHeader('content-type', 'text/markdown; charset=utf-8')
       res.setHeader('content-disposition', `attachment; filename="homeward-receipt-${url.searchParams.get('patient')}.md"`)
       res.end(md)
+    } else if (url.pathname === '/letter' && req.method === 'POST') {
+      let body = ''
+      req.on('data', (c) => { body += c })
+      req.on('end', () => {
+        let sections: Record<string, unknown> = {}
+        try { sections = (JSON.parse(body || '{}') as { sections?: Record<string, unknown> }).sections ?? {} } catch { /* empty draft */ }
+        const ok = saveLetter(board, url.searchParams.get('patient') ?? '', sections, 'Demo clinician')
+        res.statusCode = ok ? 200 : 404
+        res.end(ok ? 'saved' : 'not found')
+      })
     } else if (url.pathname === '/escalate' && req.method === 'POST') {
       prepareEscalation(board, url.searchParams.get('item') ?? '').then((ok) => {
         res.statusCode = ok ? 200 : 404
