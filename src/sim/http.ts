@@ -1,0 +1,126 @@
+/**
+ * Minimal HTTP layer for the simulator: bearer auth, JSON bodies, typed errors.
+ * Uses the global fetch shipped with Node 22, so there are no dependencies.
+ */
+
+export class SimApiError extends Error {
+  readonly status: number
+  readonly method: string
+  readonly url: string
+  readonly body: unknown
+
+  constructor(status: number, method: string, url: string, body: unknown) {
+    super(`${method} ${url} failed with HTTP ${status}: ${summarise(body)}`)
+    this.name = 'SimApiError'
+    this.status = status
+    this.method = method
+    this.url = url
+    this.body = body
+  }
+}
+
+function summarise(body: unknown): string {
+  if (typeof body === 'string') return body.slice(0, 300)
+  try {
+    return JSON.stringify(body).slice(0, 300)
+  } catch {
+    return String(body)
+  }
+}
+
+export type Query = Record<string, string | number | boolean | undefined>
+
+export interface RequestOptions {
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  query?: Query
+  body?: unknown
+  /** Sent as the Idempotency-Key header. Repeating a request with the same key and payload returns the same result. */
+  idempotencyKey?: string
+  /** Overrides the client-level bearer token for this call, or pass null for an unauthenticated call. */
+  token?: string | null
+  headers?: Record<string, string>
+  signal?: AbortSignal
+}
+
+export interface HttpClientOptions {
+  origin: string
+  token?: string
+  fetch?: typeof fetch
+  /** Extra headers sent on every request. */
+  headers?: Record<string, string>
+}
+
+export class HttpClient {
+  readonly origin: string
+  private readonly token?: string
+  private readonly fetchImpl: typeof fetch
+  private readonly baseHeaders: Record<string, string>
+
+  constructor(options: HttpClientOptions) {
+    this.origin = options.origin.replace(/\/+$/, '')
+    this.token = options.token
+    this.fetchImpl = options.fetch ?? globalThis.fetch
+    this.baseHeaders = options.headers ?? {}
+  }
+
+  buildUrl(path: string, query?: Query): string {
+    const url = new URL(path, this.origin + '/')
+    if (query) {
+      for (const [key, value] of Object.entries(query)) {
+        if (value !== undefined) url.searchParams.set(key, String(value))
+      }
+    }
+    return url.toString()
+  }
+
+  async request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
+    const method = options.method ?? 'GET'
+    const url = this.buildUrl(path, options.query)
+    const headers: Record<string, string> = { Accept: 'application/json', ...this.baseHeaders, ...options.headers }
+
+    const token = options.token === undefined ? this.token : options.token
+    if (token) headers.Authorization = `Bearer ${token}`
+    if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey
+
+    let body: string | undefined
+    if (options.body !== undefined) {
+      headers['Content-Type'] = 'application/json'
+      body = JSON.stringify(options.body)
+    }
+
+    const response = await this.fetchImpl(url, { method, headers, body, signal: options.signal })
+    const payload = await parseBody(response)
+    if (!response.ok) throw new SimApiError(response.status, method, url, payload)
+    return payload as T
+  }
+
+  get<T = unknown>(path: string, query?: Query, options: Omit<RequestOptions, 'method' | 'query' | 'body'> = {}) {
+    return this.request<T>(path, { ...options, method: 'GET', query })
+  }
+
+  post<T = unknown>(path: string, body?: unknown, options: Omit<RequestOptions, 'method' | 'body'> = {}) {
+    return this.request<T>(path, { ...options, method: 'POST', body })
+  }
+
+  put<T = unknown>(path: string, body?: unknown, options: Omit<RequestOptions, 'method' | 'body'> = {}) {
+    return this.request<T>(path, { ...options, method: 'PUT', body })
+  }
+
+  delete<T = unknown>(path: string, options: Omit<RequestOptions, 'method'> = {}) {
+    return this.request<T>(path, { ...options, method: 'DELETE' })
+  }
+}
+
+async function parseBody(response: Response): Promise<unknown> {
+  const text = await response.text()
+  if (!text) return undefined
+  const type = response.headers.get('content-type') ?? ''
+  if (type.includes('json')) {
+    try {
+      return JSON.parse(text)
+    } catch {
+      return text
+    }
+  }
+  return text
+}
