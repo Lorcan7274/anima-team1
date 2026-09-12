@@ -25,7 +25,7 @@ export async function buildBoard(sim: SimClient, world: string, patientIds: stri
 /** Detect for every patient, merging so existing item state survives re-runs. */
 export async function detectAll(ctx: OrchestratorContext): Promise<void> {
   for (const row of ctx.board.patients) {
-    const fresh = await detectForPatient(ctx.sim, row)
+    const fresh = await detectForPatient(ctx.sim, row, ctx.log)
     for (const item of fresh) {
       const existing = row.items.find((i) => i.id === item.id)
       if (!existing) {

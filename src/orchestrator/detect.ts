@@ -8,6 +8,7 @@
  */
 import type { SimClient } from '../sim/index.ts'
 import type { ChecklistItem, Evidence, PatientRow } from './model.ts'
+import { proposeBarriersFromText } from './llm.ts'
 
 interface SimResource {
   id: string
@@ -56,7 +57,11 @@ export async function bloodSummary(sim: SimClient, patientId: string): Promise<s
 }
 
 /** Detect Amira-style hospital discharge barriers for one patient. */
-export async function detectForPatient(sim: SimClient, patient: PatientRow): Promise<ChecklistItem[]> {
+export async function detectForPatient(
+  sim: SimClient,
+  patient: PatientRow,
+  log?: (message: string) => void,
+): Promise<ChecklistItem[]> {
   const P = patient.patientId
   const items: ChecklistItem[] = []
   const slug = (s: string) => `${P.toLowerCase()}-${s}`
@@ -190,8 +195,26 @@ export async function detectForPatient(sim: SimClient, patient: PatientRow): Pro
     })
   }
 
-  // TODO(team): LLM pass — feed document/letter/thread texts through
-  // llm.proposeBarriersFromText and merge deduped proposals with evidence.
+  // LLM pass: read the record's free text and merge proposals into the
+  // rule-detected items as extra evidence. Unmatched ('other') proposals are
+  // surfaced via log — they never become blocking items on their own.
+  const freeText = hospRes
+    .filter((r) => r.kind === 'document' || r.kind === 'message')
+    .map((r) => `[${r.kind} ${r.id}] ${r.title ?? ''} — ${(r.data as any)?.text ?? ''}`)
+    .join('\n')
+  if (freeText.trim()) {
+    const proposals = await proposeBarriersFromText(`hospital record for ${P}`, freeText)
+    for (const prop of proposals) {
+      const target = prop.kind === 'other' ? undefined : items.find((i) => i.id === slug(prop.kind))
+      if (target) {
+        for (const quote of prop.quotes.slice(0, 2)) {
+          if (!target.evidence.some((e) => e.quote === quote)) target.evidence.push(ev('record-text', 'hospital', quote))
+        }
+      } else {
+        log?.(`llm proposal (unmatched, not blocking): ${prop.title} — "${prop.quotes[0] ?? ''}"`)
+      }
+    }
+  }
 
   return items
 }
