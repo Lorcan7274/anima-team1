@@ -158,6 +158,7 @@ export const PAGE = `<!doctype html>
   .hero .verdict{font-size:22px;font-weight:530;letter-spacing:-0.01em}
   .hero .verdict.no{color:var(--critical)}
   .hero .verdict.yes{color:var(--good)}
+  .hero .verdict.warn{color:#7a5605}
   .hero .vsub{font-size:13.5px;font-weight:480;margin-top:4px}
   .hero .vwhat{font-size:13px;color:var(--ink-2);margin-top:6px;line-height:1.55}
   .sidebar .foot{margin-top:auto;padding:10px;font-size:12px;color:var(--ink-3);border-top:1px solid var(--grid)}
@@ -230,7 +231,7 @@ export const PAGE = `<!doctype html>
   .modal .empty{color:var(--ink-3);font-size:13px;padding:18px 0}
   .kpi svg{position:absolute;left:0;right:0;bottom:0;width:100%;height:28px;display:block}
 
-  .content{display:grid;grid-template-columns:1fr 300px;gap:14px;align-items:start}
+  .content{display:block}
   .card{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
         padding:18px 20px;margin-bottom:14px;box-shadow:0 1px 2px rgba(11,11,11,0.03)}
   .rail .card{padding:16px 18px}
@@ -408,16 +409,12 @@ export const PAGE = `<!doctype html>
       <span id="status"></span>
     </div>
     <div class="kpis" id="kpis"></div>
-    <div id="actions"></div>
     <div class="viewbar">
       <span></span>
       <span class="legend"><span><i style="background:#a5a39c"></i>Not started</span><span><i style="background:var(--warning)"></i>In progress</span><span><i style="background:var(--critical)"></i>Stuck</span><span><i style="background:var(--good)"></i>Completed</span></span>
     </div>
     <div class="content">
       <div id="board"></div>
-      <div class="rail">
-        <div class="card log-card" id="audit"><h2>Trace <span style="font-size:11px;color:var(--ink-3);font-weight:420">· live, newest first</span></h2><div id="wiretrace"></div></div>
-      </div>
     </div>
   </main>
 </div>
@@ -747,23 +744,6 @@ function render(s) {
   if (openKey) renderModal()
 
   const proposed = all.filter((i) => i.state === 'proposed').length
-  const pname = (id) => { const p0 = s.patients.find((x) => x.items.some((i) => i.id === id)); return p0 ? p0.name : '' }
-  const acards = []
-  if (proposed) acards.push('<div class="acard"><span class="who">You</span>' +
-    '<span class="t">Approve the coordination plan</span><span class="sub">' + proposed + ' operational actions — the agent will not act until you approve</span>' +
-    '<span class="act"><button class="primary" onclick="approve()">Approve ' + proposed + ' actions</button></span></div>')
-  for (const i of all.filter((x) => x.state === 'clinical_hold'))
-    acards.push('<div class="acard"><span class="who">You</span>' +
-      '<span class="t">' + esc(shortTitle(i)) + ' — ' + esc(pname(i.id)) + '</span><span class="sub">clinical decision, never automated</span>' +
-      '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="clearHold(this.dataset.id)">Confirm reviewed</button></span></div>')
-  for (const i of all.filter((x) => x.state === 'blocked_human'))
-    acards.push(i.escalation
-      ? '<div class="acard done"><span class="who" style="color:var(--good);background:rgba(12,163,12,0.10)">Sent</span>' +
-        '<span class="t">' + esc(shortTitle(i)) + ' — ' + esc(pname(i.id)) + '</span><span class="sub">escalated to ' + esc(i.escalation.responsibleTeam) + ' · case stays blocked until they decide</span></div>'
-      : '<div class="acard"><span class="who">You</span>' +
-        '<span class="t">' + esc(shortTitle(i)) + ' — ' + esc(pname(i.id)) + '</span><span class="sub">external decision the agent must not make</span>' +
-        '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="escalate(this.dataset.id)">Prepare escalation</button></span></div>')
-  document.getElementById('actions').innerHTML = acards.join('')
 
   if (!initialExpansionSet && s.patients.length) {
     expandedPatientId = s.patients[0].patientId
@@ -796,28 +776,37 @@ function render(s) {
   // --- "Can they go home?" verdict for the selected patient ---
   const heroFor = (p) => {
     if (!p) return ''
-    const first = esc(p.name.split(' ')[0])
-    const human = p.items.filter((i) => ['clinical_hold', 'blocked_human'].includes(i.state))
-    const failed = p.items.filter((i) => i.state === 'failed')
-    const ops = p.items.filter((i) => !['verified', 'clinical_hold', 'blocked_human', 'failed'].includes(i.state))
+    const human = p.items.filter((i) => ['clinical_hold', 'blocked_human', 'failed'].includes(i.state))
+    const proposed = p.items.filter((i) => i.state === 'proposed')
     const ready = p.items.length && p.items.every((i) => i.state === 'verified')
-    const names = (a) => a.map((i) => shortTitle(i).toLowerCase().replace(/^gp /, 'GP ')).join(', ')
-    let what = ''
-    if (!ready) {
-      if (ops.length) what += 'I can progress ' + names(ops) + '. '
-      if (human.length) what += 'I cannot decide ' + names(human) + ' — that needs a person. '
-      if (failed.length) what += names(failed).replace(/^./, (c) => c.toUpperCase()) + ' failed and needs attention. '
-      if (!ops.length && !human.length && !failed.length) what = 'Verification in progress.'
-    } else {
-      what = 'All arrangements executed and independently verified. Final discharge is the clinician\\'s decision.'
-    }
+    const working = p.items.some((i) => ['approved', 'resolving', 'awaiting_verification'].includes(i.state))
     const open = p.items.filter((i) => i.state !== 'verified').length
-    return '<div class="hero">' +
-      (ready
-        ? '<div class="verdict yes">Clear</div><div class="vsub">' + p.items.length + ' of ' + p.items.length + ' verified · clinician decision remains</div>'
-        : '<div class="verdict no">Not clear</div><div class="vsub">' + open + ' of ' + p.items.length + ' outstanding' +
-          (human.length ? ' · ' + human.length + (human.length === 1 ? ' needs' : ' need') + ' a person' : '') + '</div>') +
-      '</div>'
+    let head, cls
+    if (ready) { head = 'Ready for discharge'; cls = 'yes' }
+    else if (human.length || proposed.length) { head = 'Needs a human'; cls = 'no' }
+    else if (working) { head = 'In progress'; cls = 'warn' }
+    else { head = 'In progress'; cls = 'warn' }
+    const acts = []
+    if (proposed.length) acts.push('<div class="acard"><span class="t">Approve the plan</span>' +
+      '<span class="sub">' + proposed.length + ' actions wait for your approval</span>' +
+      '<span class="act"><button class="primary" data-p="' + esc(p.patientId) + '" onclick="approvePatient(this.dataset.p)">Approve</button></span></div>')
+    for (const i of p.items.filter((x) => x.state === 'clinical_hold'))
+      acts.push('<div class="acard"><span class="t">' + esc(shortTitle(i)) + '</span><span class="sub">clinical decision</span>' +
+        '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="clearHold(this.dataset.id)">Confirm reviewed</button></span></div>')
+    for (const i of p.items.filter((x) => x.state === 'blocked_human'))
+      acts.push(i.escalation
+        ? '<div class="acard done"><span class="t">' + esc(shortTitle(i)) + '</span><span class="sub">escalated to ' + esc(i.escalation.responsibleTeam) + '</span></div>'
+        : '<div class="acard"><span class="t">' + esc(shortTitle(i)) + '</span><span class="sub">external decision</span>' +
+          '<span class="act"><button class="confirm" data-id="' + i.id + '" onclick="escalate(this.dataset.id)">Prepare escalation</button></span></div>')
+    const tasks = p.items.map((i) => '<div class="lrow" data-id="' + i.id + '" onclick="itemStory(this.dataset.id)">' + chip(i.state) +
+      '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span><span>' + esc(i.title) + '</span>' +
+      '<span style="margin-left:auto;color:var(--ink-3);font-size:11px">what the agent did &rsaquo;</span></div>').join('')
+    return '<div class="hero"><div class="verdict ' + cls + '">' + head + '</div>' +
+      '<div class="vsub">' + (ready ? p.items.length + ' of ' + p.items.length + ' verified · clinician decision remains'
+        : open + ' of ' + p.items.length + ' outstanding') +
+      ' · <a class="rlink" href="/receipt?patient=' + esc(p.patientId) + '">Receipt &darr;</a></div></div>' +
+      acts.join('') +
+      '<div class="ptable">' + tasks + '</div>'
   }
 
   const graphView = () => (sel ? [sel] : []).map((p) => {
@@ -881,15 +870,15 @@ function render(s) {
         '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span><span>' + esc(i.title) +
         ((i.evidence || [])[0] ? ' <span class="q">&ldquo;' + q(i.evidence[0].quote) + '&rdquo;</span> <span class="tag rec">record</span>' : '') + '</span></div>').join('') + '</div>'
   }).join('')
-  document.getElementById('board').innerHTML = heroFor(sel) + tableView()
+  document.getElementById('board').innerHTML = heroFor(sel)
 
 
-  renderRailTrace(s)
 }
 async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
 function itemStory(id) { openModal('item:' + id) }
 async function clearHold(id) { await fetch('/clear-hold?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
 async function approve() { await fetch('/approve', { method: 'POST' }); tick() }
+async function approvePatient(p) { await fetch('/approve?patient=' + encodeURIComponent(p), { method: 'POST' }); tick() }
 async function escalate(id) {
   const btn = event?.target
   if (btn) { btn.textContent = 'Drafting…'; btn.disabled = true }
