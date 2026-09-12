@@ -11,9 +11,15 @@ import { detectForPatient, loadPatientRow } from './detect.ts'
 import { planFor, resolverFor } from './resolve.ts'
 import { verifierFor } from './verify.ts'
 import type { SimClient } from '../sim/index.ts'
+import { randomBytes } from 'node:crypto'
+
+/** Short random id for this process; see the idempotency key in resolve.ts. */
+export function newRunId(): string {
+  return randomBytes(3).toString('hex')
+}
 
 export async function buildBoard(sim: SimClient, world: string, patientIds: string[]): Promise<BoardState> {
-  const board: BoardState = { world, simNow: 0, patients: [], log: [] }
+  const board: BoardState = { world, runId: newRunId(), simNow: 0, patients: [], log: [] }
   for (const id of patientIds) {
     const row = await loadPatientRow(sim, id)
     board.patients.push(row)
@@ -170,6 +176,17 @@ export function clearHold(board: BoardState, itemId: string, clinician: string):
     }
   }
   return false
+}
+
+/** What still needs the agent or a person: drives the demo loop's waiting. */
+export function pendingWork(board: BoardState): { approved: number; proposed: number; holds: number; blocked: number } {
+  const items = board.patients.flatMap((p) => p.items)
+  return {
+    approved: items.filter((i) => i.state === 'approved').length,
+    proposed: items.filter((i) => i.state === 'proposed').length,
+    holds: items.filter((i) => i.state === 'clinical_hold').length,
+    blocked: items.filter((i) => i.state === 'blocked_human').length,
+  }
 }
 
 /** True when every item for the patient is verified (holds cleared, no blockers). */

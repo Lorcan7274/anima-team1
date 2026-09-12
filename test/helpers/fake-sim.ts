@@ -26,6 +26,8 @@ export interface FakeSimOptions {
   gpDocs?: any[]
   patients?: any[]
   appointments?: any[]
+  /** Appointment sessions returned with the day's book (siteAppointments). */
+  sessions?: any[]
   /** Called after every action with the recorded write and the resource returned. */
   onAction?: (write: Write, resource: any, views: Record<string, any[]>) => void
   /** Called after every clock advance with the new sim time. */
@@ -107,7 +109,7 @@ export function fakeSim(opts: FakeSimOptions = {}) {
         observations: resources.filter((r) => r.kind === 'observation'),
       }
     },
-    siteAppointments: async () => ({ appointments: opts.appointments ?? [] }),
+    siteAppointments: async () => ({ appointments: opts.appointments ?? [], sessions: [...(opts.sessions ?? []), ...(views.gp ?? []).filter((r) => r.kind === 'appointment-session')] }),
     siteAction: async (site: string, body: Record<string, any>, key?: string) => {
       const write: Write = { site, body, key }
       writes.push(write)
@@ -141,7 +143,7 @@ export function fakeSim(opts: FakeSimOptions = {}) {
         if (body.type === 'order_test') resource.data = { ...body.bloodTestOrder }
         if (body.type === 'create_appointment_session') resource.data = { mode: body.mode }
         if (body.type === 'book_appointment') {
-          const session = (views.gp ?? []).find((r) => r.id === body.sessionId)
+          const session = [...(opts.sessions ?? []), ...(views.gp ?? [])].find((r) => r.id === body.sessionId)
           resource.data = { mode: session?.data?.mode, startsAt: body.startsAt }
         }
         if (body.type === 'save_discharge_summary') resource.data = { sections: body.dischargeSections }

@@ -116,3 +116,76 @@ test('every resolvable item type has a plan, and the plan ends with what verific
   assert.equal(planFor(item('clinical-hold')), undefined)
   assert.equal(planFor(item('care-package')), undefined)
 })
+
+// --- Telephone rebook: book first, cancel second ------------------------------
+
+const DAY = 86_400_000
+const tomorrow = Math.floor(FIT / DAY) * DAY + DAY
+const telephoneSession = (extra: Record<string, unknown> = {}) => ({
+  id: 'sess-tel', kind: 'appointment-session', status: 'open', version: 3, title: 'Telephone AM',
+  data: { mode: 'telephone', clinician: 'Dr Daniel Brooks', startsAt: tomorrow + 8 * 3_600_000, endsAt: tomorrow + 12 * 3_600_000, slotMinutes: 15,
+    blockedSlots: [{ startsAt: tomorrow + 8 * 3_600_000, reason: 'Protected break' }], ...extra },
+})
+const inPersonToday = { id: 'appt-old', kind: 'appointment', patientId: 'SIM-000001', status: 'booked', version: 2, data: { mode: 'in-person', clinician: 'Dr Maya Shah', startsAt: FIT + 15 * 60_000 } }
+
+test('follow-up: books into an existing telephone session, skipping blocked and taken slots, and only then cancels the in-person slot', async () => {
+  const taken = { id: 'appt-x', kind: 'appointment', patientId: 'SIM-000009', status: 'booked', data: { mode: 'telephone', clinician: 'Dr Daniel Brooks', startsAt: tomorrow + 8 * 3_600_000 + 15 * 60_000 } }
+  const f = fakeSim({ views: { gp: [] }, sessions: [telephoneSession()], appointments: [inPersonToday, taken] })
+  const it = item('follow-up')
+  const res = await resolverFor(it)!(ctxFor(f.sim, [it], ['Avoid unnecessary travel']), it)
+  assert.deepEqual(f.writes.map((w) => w.body.type), ['create_task', 'book_appointment', 'cancel_appointment'], 'no session is created when one exists; cancel comes after booking')
+  const booking = f.writes[1].body
+  assert.equal(booking.sessionId, 'sess-tel')
+  assert.equal(booking.sessionVersion, 3)
+  assert.equal(booking.startsAt, tomorrow + 8 * 3_600_000 + 30 * 60_000, '08:00 is blocked and 08:15 is taken, so 08:30')
+  assert.equal(f.writes[2].body.resourceId, 'appt-old')
+  assert.equal(res.alsoResourceIds?.length, 1)
+})
+
+test('follow-up: when the telephone booking fails the in-person appointment is left alone', async () => {
+  const f = fakeSim({
+    views: { gp: [] }, sessions: [telephoneSession()], appointments: [inPersonToday],
+    onAction: (w) => { if (w.body.type === 'book_appointment') throw new Error('HTTP 409: slot just taken') },
+  })
+  const it = item('follow-up')
+  const res = await resolverFor(it)!(ctxFor(f.sim, [it], ['Avoid unnecessary travel']), it)
+  assert.deepEqual(f.writes.map((w) => w.body.type), ['create_task', 'book_appointment'])
+  assert.ok(!f.writes.some((w) => w.body.type === 'cancel_appointment'), 'never cancel without a replacement')
+  assert.equal(res.alsoResourceIds, undefined)
+  assert.equal(res.resourceId, f.views.gp[0].id, 'the task still stands')
+})
+
+test('follow-up: with no telephone session on the day, one is created after the surgery day ends', async () => {
+  const f = fakeSim({ views: { gp: [] }, appointments: [inPersonToday] })
+  const it = item('follow-up')
+  await resolverFor(it)!(ctxFor(f.sim, [it], ['Avoid unnecessary travel']), it)
+  assert.deepEqual(f.writes.map((w) => w.body.type), ['create_task', 'create_appointment_session', 'book_appointment', 'cancel_appointment'])
+  const session = f.writes[1].body
+  assert.equal(session.mode, 'telephone')
+  assert.equal(session.startsAt, tomorrow + 17 * 3_600_000, 'after the seeded 08:00-12:00 and 13:00-17:00 surgeries')
+})
+
+test('idempotency keys include the run id when the board has one', async () => {
+  const f = fakeSim({ views: { wearables: [] } })
+  const it = item('device')
+  const ctx = ctxFor(f.sim, [it])
+  ctx.board.runId = 'ab12cd'
+  const res = await resolverFor(it)!(ctx, it)
+  assert.equal(res.idempotencyKey, 'w-ab12cd-sim-000001-device-connect-1')
+  const g = fakeSim({ views: { wearables: [] } })
+  const ctx2 = ctxFor(g.sim, [item('device')])
+  ctx2.board.runId = 'ef34ab'
+  const res2 = await resolverFor(ctx2.board.patients[0].items[0])!(ctx2, ctx2.board.patients[0].items[0])
+  assert.notEqual(res.idempotencyKey, res2.idempotencyKey, 'a fresh process never reuses a key')
+})
+
+test('bloods: the clinical details cite the patient\'s own conditions, not a template diagnosis', async () => {
+  const f = fakeSim({ views: { diagnostics: [] } })
+  const it = item('bloods')
+  const ctx = ctxFor(f.sim, [it])
+  ctx.board.patients[0].conditions = ['Frailty']
+  await resolverFor(it)!(ctx, it)
+  const details: string = f.writes[0].body.bloodTestOrder.clinicalDetails
+  assert.match(details, /Frailty/)
+  assert.doesNotMatch(details, /CKD|diuretic|heart failure/i)
+})

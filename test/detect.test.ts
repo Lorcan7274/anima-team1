@@ -161,3 +161,16 @@ test('bloodSummary reports the latest panel and flags out-of-range analytes', as
   assert.match(text, /eGFR 49 \(flagged\)/)
   assert.match(text, /Neutrophils 2\.6/)
 })
+
+test('neutrophil history is computed from the patient\'s own FBC series', async () => {
+  const fbc = (id: string, monthsAgo: number, neutrophils: number) => ({
+    id, kind: 'report', createdAt: FIT - monthsAgo * 30 * 86_400_000,
+    data: { kind: 'blood-result', panel: { id: 'fbc', name: 'FBC' }, analytes: [{ id: 'neutrophils', name: 'Neutrophils', value: neutrophils, referenceLow: 2.0, referenceHigh: 7.5 }] },
+  })
+  const dip = fakeSim({ views: { diagnostics: [fbc('a', 12, 2.0), fbc('b', 8, 1.0), fbc('c', 4, 0.5), fbc('d', 2, 1.7), fbc('e', 0, 2.6)] } })
+  assert.match(await bloodSummary(dip.sim, 'SIM-000001'), /History: neutrophil nadir 0\.5 4 months ago, since recovered to 2\.6\./)
+  const flat = fakeSim({ views: { diagnostics: [fbc('a', 6, 3.1), fbc('b', 0, 3.4)] } })
+  assert.doesNotMatch(await bloodSummary(flat.sim, 'SIM-000001'), /History/, 'no dip below range, no history sentence')
+  const none = fakeSim({ views: { diagnostics: [] } })
+  assert.doesNotMatch(await bloodSummary(none.sim, 'SIM-000001'), /History|nadir/, 'no results, nothing invented')
+})

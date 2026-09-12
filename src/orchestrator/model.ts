@@ -143,6 +143,8 @@ export interface PatientRow {
 /** Whole-run state the UI polls and the demo script drives. */
 export interface BoardState {
   world: string
+  /** Random per-process id, part of every idempotency key so a fresh run never reuses one. */
+  runId?: string
   simNow: number
   /** Sim time the cohort was deemed medically fit — the story panel's t=0. */
   fitAt?: number

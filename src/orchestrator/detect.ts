@@ -47,13 +47,36 @@ export async function bloodSummary(sim: SimClient, patientId: string): Promise<s
   }
   const ue = latestOf('ue')
   const fbc = latestOf('fbc')
-  // Honest current picture: latest U&E in range apart from eGFR; neutropenia
-  // history recovered but WCC still flagged. Do NOT claim "potassium rising".
+  // History is computed from this patient's own FBC series: the lowest
+  // neutrophil count on record, when it was, and whether it has recovered.
+  // Nothing here is a template — a patient without a dip gets no sentence.
+  const history = neutrophilHistory(reports.filter((r) => (r.data as any)?.panel?.id === 'fbc'), fbc)
   return (
     `Latest U&E: ${fmt(ue, ['potassium', 'creatinine', 'egfr'])}. ` +
-    `Latest FBC: ${fmt(fbc, ['neutrophils', 'white-cell-count'])}. ` +
-    `History: neutrophil nadir 0.5 four months ago, since recovered.`
+    `Latest FBC: ${fmt(fbc, ['neutrophils', 'white-cell-count'])}.` +
+    (history ? ` ${history}` : '')
   )
+}
+
+/** "History: neutrophil nadir 0.5 four months ago, since recovered to 2.6." from the FBC series, or '' when there is no dip. */
+export function neutrophilHistory(fbcReports: SimResource[], latest: SimResource | undefined): string {
+  const value = (r: SimResource | undefined) => {
+    const a = (((r?.data as any)?.analytes ?? []) as any[]).find((x) => x.id === 'neutrophils')
+    return a ? { value: Number(a.value), low: a.referenceLow as number | undefined } : undefined
+  }
+  const now = value(latest)
+  if (!latest || !now) return ''
+  let nadir: { value: number; at: number; low?: number } | undefined
+  for (const r of fbcReports) {
+    if (r.id === latest.id) continue
+    const v = value(r)
+    if (v && (!nadir || v.value < nadir.value)) nadir = { value: v.value, at: r.createdAt ?? 0, low: v.low }
+  }
+  if (!nadir || nadir.value >= now.value) return ''
+  if (nadir.low != null && nadir.value >= nadir.low) return '' // never dipped below range: not a history worth citing
+  const months = Math.max(1, Math.round(((latest.createdAt ?? 0) - nadir.at) / (30 * 86_400_000)))
+  const recovered = now.low == null || now.value >= now.low
+  return `History: neutrophil nadir ${nadir.value} ${months === 1 ? 'a month' : `${months} months`} ago, since ${recovered ? 'recovered to' : 'risen to'} ${now.value}.`
 }
 
 /** Detect Amira-style hospital discharge barriers for one patient. */

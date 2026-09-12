@@ -59,7 +59,9 @@ async function structured<T>(
 
 // --- Barrier proposals from free text ---------------------------------------
 
-const BarrierKind = z.enum(['medicines', 'bloods', 'device', 'visit', 'summary', 'follow-up', 'other'])
+/** Item slugs the model may file a barrier under; 'clinical-hold' routes clinical concerns to the hold, never to a service item. */
+export const BARRIER_KINDS = ['clinical-hold', 'medicines', 'bloods', 'device', 'visit', 'summary', 'follow-up', 'other'] as const
+const BarrierKind = z.enum(BARRIER_KINDS)
 
 const ProposedBarrierSchema = z.object({
   barriers: z.array(
@@ -88,7 +90,10 @@ export async function proposeBarriersFromText(
     'barrier_reader',
     ProposedBarrierSchema,
     `List every discharge barrier the record text evidences. Quote the exact words. ` +
-      `Use kind 'other' only when no listed kind fits.\n\n` +
+      `Kinds: clinical-hold = an open clinical review or clinical concern only a clinician can clear; ` +
+      `medicines = discharge medication not dispensed or handover unconfirmed; bloods = monitoring bloods requested; ` +
+      `device = home monitoring equipment; visit = home support visit; summary = discharge letter; ` +
+      `follow-up = GP review. Use kind 'other' only when no listed kind fits.\n\n` +
       `Source: ${source}\nRecord text:\n"""\n${text}\n"""`,
     () => ({ barriers: [] }),
   )
@@ -125,15 +130,16 @@ export async function draftDischargeSummary(context: {
       `Record extracts:\n${context.documentTexts.map((t) => `- ${t}`).join('\n')}\n` +
       `Blood results: ${context.bloodSummary}\n` +
       `Arrangements already made by the discharge agent:\n${context.planned.map((t) => `- ${t}`).join('\n')}\n\n` +
-      `medicationChanges MUST include the medicines reconciliation content ` +
-      `(a GP letter is chasing a missing reconciliation attachment). ` +
-      `Keep each section to 1-3 sentences, operational tone.`,
+      `medicationChanges must state the medicines reconciliation position exactly as the extracts ` +
+      `evidence it (completed, outstanding, or not documented) — never assert a reconciliation ` +
+      `or a medication change the extracts do not show. Use only the record above; do not carry ` +
+      `facts from any other patient. Keep each section to 1-3 sentences, operational tone.`,
     () => ({
       // Generic template — must read correctly for ANY patient, not just Amira.
       reason: `Admitted for management of ${context.conditions[0]?.toLowerCase() ?? 'the documented condition'}.`,
       course: 'Inpatient course as documented; operationally ready for discharge planning pending clinician sign-off.',
       diagnoses: `${context.conditions.join('; ') || 'As per record'}.`,
-      medicationChanges: 'Discharge medication supply arranged; medicines reconciliation completed and included here.',
+      medicationChanges: 'Discharge medication supply arranged. Medicines reconciliation position: as documented in the record; not confirmed by the drafting agent.',
       results: context.bloodSummary,
       followUp: context.planned.join(' '),
       gpActions: 'Review outstanding results when available; assess at the arranged follow-up.',
@@ -190,14 +196,16 @@ const DetailsSchema = z.object({
 /** Clinical details for a blood-test order, citing the real result history. */
 export async function draftClinicalDetails(
   bloodSummary: string,
+  conditions: string[] = [],
 ): Promise<{ text: string; source: LlmSource }> {
+  const who = conditions.length ? `Recorded conditions: ${conditions.join(', ')}. ` : ''
   const out = await structured(
     'order_writer',
     DetailsSchema,
     `Write the clinicalDetails field for a ROUTINE post-discharge blood monitoring order. ` +
-      `Result history: ${bloodSummary} ` +
-      `Be accurate about trends — do not exaggerate. 1-2 sentences.`,
-    () => ({ clinicalDetails: `Routine post-discharge monitoring. ${bloodSummary}` }),
+      `${who}Result history: ${bloodSummary} ` +
+      `Be accurate about trends — do not exaggerate or add conditions not listed. 1-2 sentences.`,
+    () => ({ clinicalDetails: `Routine post-discharge monitoring${conditions.length ? ` (${conditions.join(', ')})` : ''}. ${bloodSummary}` }),
   )
   return { text: out.value.clinicalDetails, source: out.source }
 }

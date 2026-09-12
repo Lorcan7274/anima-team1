@@ -73,3 +73,13 @@ function require_sites(): { SITES: readonly string[] } {
   const block = text.match(/export const SITES[^=]*=\s*\[([^\]]*)\]/)![1]
   return { SITES: [...block.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]) }
 }
+
+test('every barrier kind the model may return maps to an item id detection can produce', async () => {
+  const { BARRIER_KINDS } = await import('../src/orchestrator/llm.ts')
+  const detectSource = sources.find((s) => s.file.endsWith('orchestrator/detect.ts'))!.text
+  for (const kind of BARRIER_KINDS) {
+    if (kind === 'other') continue
+    assert.ok(detectSource.includes(`slug('${kind}')`), `${kind}: no detected item uses that slug, so model evidence for it would be lost`)
+  }
+  assert.ok(BARRIER_KINDS.includes('clinical-hold'), 'clinical concerns must have a home other than a service item')
+})

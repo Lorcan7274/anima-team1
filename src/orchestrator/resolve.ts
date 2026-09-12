@@ -12,8 +12,13 @@ import { draftClinicalDetails, draftDischargeSummary } from './llm.ts'
 
 type Resolver = (ctx: OrchestratorContext, item: ChecklistItem) => Promise<Resolution>
 
+/**
+ * Idempotency key: world, run, item, step, attempt. The run id makes a fresh
+ * process (no snapshot to restore) send new keys — the model rewrites every
+ * payload, and the simulator rejects an old key with a different body.
+ */
 const key = (ctx: OrchestratorContext, item: ChecklistItem, step: string) =>
-  `${ctx.world}-${item.id}-${step}-${item.attempts ?? 1}`
+  `${ctx.world}-${ctx.board.runId ? `${ctx.board.runId}-` : ''}${item.id}-${step}-${item.attempts ?? 1}`
 
 const simNow = async (ctx: OrchestratorContext) => Number((await ctx.sim.clock()).now)
 
@@ -23,7 +28,8 @@ const simNow = async (ctx: OrchestratorContext) => Number((await ctx.sim.clock()
  */
 const resolveBloods: Resolver = async (ctx, item) => {
   const summary = await bloodSummary(ctx.sim, item.patientId)
-  const { text: details, source: detailsSource } = await draftClinicalDetails(summary)
+  const conditions = ctx.board.patients.find((p) => p.patientId === item.patientId)?.conditions ?? []
+  const { text: details, source: detailsSource } = await draftClinicalDetails(summary, conditions)
   item.generated = detailsSource
   const shared = { specimen: 'blood', priority: 'routine' as const, collection: 'now' as const, clinicalDetails: details }
   const ue = await ctx.sim.orderBloodTest(
@@ -152,41 +158,94 @@ const resolveFollowUp: Resolver = async (ctx, item) => {
 
 const DAY = 24 * 60 * 60_000
 
-/** Cancel today's in-person GP appointments and book a telephone slot tomorrow morning. Returns the new appointment id. */
+/**
+ * Honour "avoid unnecessary travel": book a telephone review for tomorrow,
+ * then cancel today's in-person appointment. Booking comes FIRST — a patient
+ * must never be left with no appointment because the telephone booking
+ * failed. Prefers a free slot in an existing telephone session (the seeded
+ * practice runs one); only creates a session when none exists.
+ * Returns the new appointment id, or undefined if nothing could be booked.
+ */
 async function rebookAsTelephone(ctx: OrchestratorContext, item: ChecklistItem): Promise<string | undefined> {
   const P = item.patientId
+  const now = await simNow(ctx)
+  const today = new Date(now).toISOString().slice(0, 10)
+  const tomorrowStart = Math.floor(now / DAY) * DAY + DAY
+  const tomorrow = new Date(tomorrowStart).toISOString().slice(0, 10)
+  let booked: { id: string; startsAt: number } | undefined
   try {
-    const now = await simNow(ctx)
-    const today = new Date(now).toISOString().slice(0, 10)
-    const book = (await ctx.sim.siteAppointments('gp', { date: today })) as { appointments?: any[] }
-    const inPerson = (book.appointments ?? []).filter((a) => a.patientId === P && a.status === 'booked' && a.data?.mode === 'in-person')
+    const book = (await ctx.sim.siteAppointments('gp', { date: tomorrow })) as { appointments?: any[]; sessions?: any[] }
+    const slot = findFreeTelephoneSlot(book, tomorrowStart)
+    if (slot) {
+      const appt = await ctx.sim.siteAction(
+        'gp',
+        { type: 'book_appointment', patientId: P, sessionId: slot.session.id, sessionVersion: slot.session.version, startsAt: slot.startsAt,
+          title: 'Post-discharge telephone review (patient goal: avoid unnecessary travel)' },
+        key(ctx, item, 'book'),
+      )
+      booked = { id: appt.id, startsAt: slot.startsAt }
+    } else {
+      // No telephone session tomorrow: open one late afternoon, when the seeded
+      // surgery sessions have ended, so it cannot overlap the clinician's day.
+      const startsAt = tomorrowStart + 17 * 60 * 60_000
+      const session = await ctx.sim.siteAction(
+        'gp',
+        { type: 'create_appointment_session', title: 'Post-discharge telephone reviews', clinician: 'Dr Maya Shah', location: 'Telephone',
+          startsAt, endsAt: startsAt + 60 * 60_000, slotMinutes: 15, mode: 'telephone' },
+        key(ctx, item, 'session'),
+      )
+      const appt = await ctx.sim.siteAction(
+        'gp',
+        { type: 'book_appointment', patientId: P, sessionId: session.id, sessionVersion: session.version, startsAt,
+          title: 'Post-discharge telephone review (patient goal: avoid unnecessary travel)' },
+        key(ctx, item, 'book'),
+      )
+      booked = { id: appt.id, startsAt }
+    }
+    ctx.log(`booked telephone review ${booked.id} for ${new Date(booked.startsAt).toISOString().slice(0, 16).replace('T', ' ')} (${P})`)
+  } catch (err) {
+    ctx.log(`telephone rebook failed (non-fatal, task still stands; in-person appointment kept): ${String((err as Error).message).slice(0, 140)}`)
+    return undefined
+  }
+  // Only now, with the telephone slot secured, release today's in-person slot.
+  try {
+    const todayBook = (await ctx.sim.siteAppointments('gp', { date: today })) as { appointments?: any[] }
+    const inPerson = (todayBook.appointments ?? []).filter((a) => a.patientId === P && a.status === 'booked' && a.data?.mode === 'in-person')
     for (const appt of inPerson) {
       await ctx.sim.siteAction(
         'gp',
         { type: 'cancel_appointment', patientId: P, resourceId: appt.id, expectedVersion: appt.version },
         key(ctx, item, `cancel-${appt.id}`),
       )
-      ctx.log(`cancelled in-person appointment ${appt.id} (${new Date(appt.data?.startsAt ?? 0).toISOString().slice(11, 16)}) — patient goal: avoid unnecessary travel`)
+      ctx.log(`cancelled in-person appointment ${appt.id} (${new Date(appt.data?.startsAt ?? 0).toISOString().slice(11, 16)}) — replaced by telephone review ${booked.id}`)
     }
-    const startsAt = Math.floor(now / DAY) * DAY + DAY + 9 * 60 * 60_000 // tomorrow 09:00
-    const session = await ctx.sim.siteAction(
-      'gp',
-      { type: 'create_appointment_session', title: 'Post-discharge telephone reviews', clinician: 'Dr Maya Shah', location: 'Telephone',
-        startsAt, endsAt: startsAt + 3 * 60 * 60_000, slotMinutes: 15, mode: 'telephone' },
-      key(ctx, item, 'session'),
-    )
-    const appt = await ctx.sim.siteAction(
-      'gp',
-      { type: 'book_appointment', patientId: P, sessionId: session.id, sessionVersion: session.version, startsAt,
-        title: 'Post-discharge telephone review (patient goal: avoid unnecessary travel)' },
-      key(ctx, item, 'book'),
-    )
-    ctx.log(`booked telephone review ${appt.id} for ${new Date(startsAt).toISOString().slice(0, 16).replace('T', ' ')} (${P})`)
-    return appt.id
   } catch (err) {
-    ctx.log(`telephone rebook failed (non-fatal, task still stands): ${String((err as Error).message).slice(0, 140)}`)
-    return undefined
+    ctx.log(`could not cancel the in-person appointment (patient keeps both; non-fatal): ${String((err as Error).message).slice(0, 140)}`)
   }
+  return booked.id
+}
+
+/** First free 15-minute slot in any open telephone session on the day, skipping blocked and booked slots. */
+export function findFreeTelephoneSlot(
+  book: { appointments?: any[]; sessions?: any[] },
+  dayStart: number,
+): { session: any; startsAt: number } | undefined {
+  const sessions = (book.sessions ?? []).filter((s) => s.data?.mode === 'telephone' && s.status !== 'closed')
+  const taken = new Set(
+    (book.appointments ?? [])
+      .filter((a) => a.status === 'booked')
+      .map((a) => `${a.data?.clinician ?? ''}@${a.data?.startsAt}`),
+  )
+  for (const session of sessions.sort((x, y) => (x.data?.startsAt ?? 0) - (y.data?.startsAt ?? 0))) {
+    const d = session.data ?? {}
+    const step = (d.slotMinutes ?? 15) * 60_000
+    const blocked = new Set(((d.blockedSlots ?? []) as any[]).map((b) => b.startsAt))
+    for (let t = Math.max(d.startsAt ?? dayStart, dayStart); t + step <= (d.endsAt ?? 0); t += step) {
+      if (blocked.has(t) || taken.has(`${d.clinician ?? ''}@${t}`)) continue
+      return { session, startsAt: t }
+    }
+  }
+  return undefined
 }
 
 /**

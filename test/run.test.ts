@@ -114,3 +114,27 @@ test('prepareEscalation drafts a handover only for a blocked item, and the item 
   assert.ok(ctx.board.log.some((l) => /ESCALATION prepared .*case remains blocked/.test(l)))
   assert.equal(f.writes.length, 0, 'escalation never touches the simulator')
 })
+
+test('pendingWork counts what the demo loop waits on', async () => {
+  const { pendingWork } = await import('../src/orchestrator/run.ts')
+  const f = fakeSim()
+  const ctx = ctxFor(f.sim, [
+    item('visit', 'approved'), item('bloods', 'proposed'), item('device', 'proposed'),
+    item('clinical-hold', 'clinical_hold'), item('care-package', 'blocked_human'), item('summary', 'verified'),
+  ])
+  assert.deepEqual(pendingWork(ctx.board), { approved: 1, proposed: 2, holds: 1, blocked: 1 })
+})
+
+test('approving one patient runs that plan without waiting for the other patient', async () => {
+  const f = fakeSim({
+    views: { community: [], gp: [] },
+    onAdvance: (_now, views) => { for (const v of views.community ?? []) v.status = 'completed' },
+  })
+  const ctx = ctxFor(f.sim, [item('visit', 'approved')])
+  ctx.board.patients.push({ patientId: 'SIM-000006', name: 'Eleanor Chen', conditions: [], needs: [], goals: [], stage: 'inpatient',
+    items: [{ ...item('follow-up', 'proposed'), id: 'sim-000006-follow-up', patientId: 'SIM-000006' }] })
+  await runUntilSettled(ctx)
+  assert.equal(ctx.board.patients[0].items[0].state, 'verified', 'Amira\'s approved plan ran')
+  assert.equal(ctx.board.patients[1].items[0].state, 'proposed', 'Eleanor\'s unapproved plan was not touched')
+  assert.deepEqual(f.writes.map((w) => w.body.type), ['schedule_visit'])
+})

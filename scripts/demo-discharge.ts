@@ -15,7 +15,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { connectWorld, joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '../src/orchestrator/world.ts'
-import { approveAll, buildBoard, clearHold, detectAll, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
+import { approveAll, buildBoard, clearHold, detectAll, pendingWork, runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
 import { refreshStage } from '../src/orchestrator/detect.ts'
 import type { OrchestratorContext } from '../src/orchestrator/model.ts'
 import { startUi } from '../src/ui/server.ts'
@@ -164,54 +164,57 @@ snapshot()
 if (flag('detect-only')) {
   console.log('\n--detect-only: stopping after detection. UI stays up if started.')
 } else {
-  // --- Staff approval gate ---------------------------------------------------
-  if (flag('approve') || flag('no-ui')) {
-    approveAll(board, 'Auto-approval (headless run)')
-  } else {
-    console.log('\nwaiting for "Approve plan" in the UI (or re-run with --approve)...')
-    // The agent starts only once every patient's plan is approved, so name
-    // who is still outstanding — an approved patient otherwise looks stuck.
-    for (;;) {
-      const waiting = board.patients.filter((p) => p.items.some((i) => i.state === 'proposed'))
-      if (!waiting.length) break
-      phase(`Waiting for staff to approve the plan for ${waiting.map((p) => p.name).join(' and ')}`, false)
-      await new Promise((r) => setTimeout(r, 2000))
-    }
-  }
-  snapshot()
-
-  // --- Resolve -> advance -> verify loop ------------------------------------
-  await runUntilSettled(ctx)
-  snapshot()
-
-  // --- Clinical holds: a human must clear them ------------------------------
+  // --- Approve -> act -> verify -> discharge, per patient, as approvals arrive ---
+  // Approving one patient's plan starts the agent on that plan at once. Other
+  // patients can be approved (or a hold cleared) while it runs; each pass
+  // picks up whatever is newly approved and discharges whoever is fully green.
+  const headless = flag('approve') || flag('no-ui')
+  if (headless) approveAll(board, 'Auto-approval (headless run)')
   const holds = () => board.patients.flatMap((p) => p.items).filter((i) => i.state === 'clinical_hold')
-  if (holds().length) {
-    if (flag('clear-holds')) {
-      for (const h of holds()) { clearHold(board, h.id, 'Simulated clinician (--clear-holds)'); ctx.log(`hold ${h.id} cleared by simulated clinician`) }
-    } else if (!flag('no-ui')) {
-      console.log('\nwaiting for the clinician to press "Confirm reviewed" in the UI (or re-run with --clear-holds)...')
-      phase('Waiting for clinician sign-off on the clinical hold', false)
-      while (holds().length) await new Promise((r) => setTimeout(r, 2000))
-    } else {
-      ctx.log(`${holds().length} clinical hold(s) remain — headless run without --clear-holds, not discharging`)
-    }
-  }
-  snapshot()
-
-  // --- Finale: discharge whoever is fully green ------------------------------
-  phase('Discharging ready patients in the hospital EPR')
-  for (const p of board.patients) {
-    if (p.stage === 'discharged') continue
-    if (readyForDischarge(p)) {
+  const dischargeReady = async () => {
+    for (const p of board.patients) {
+      if (p.stage === 'discharged' || !readyForDischarge(p)) continue
+      phase(`Discharging ${p.name} in the hospital EPR`)
       await dischargeAttendance(sim, p.patientId, 'Home with community support and monitoring')
       await refreshStage(sim, p) // the board must say what the hospital record now says
       p.dischargedAt = board.simNow // story lane needs the moment the bed was freed
       ctx.log(`DISCHARGED ${p.name}`)
-    } else {
-      const open = p.items.filter((i) => i.state !== 'verified')
-      ctx.log(`${p.name} NOT discharged — ${open.length} unresolved: ${open.map((i) => `${i.id}[${i.state}]`).join(', ')}`)
     }
+  }
+  let announced = ''
+  for (;;) {
+    const work = pendingWork(board)
+    if (work.approved) {
+      await runUntilSettled(ctx)
+      snapshot()
+    }
+    if (flag('clear-holds')) {
+      for (const h of holds()) { clearHold(board, h.id, 'Simulated clinician (--clear-holds)'); ctx.log(`hold ${h.id} cleared by simulated clinician`) }
+    }
+    await dischargeReady()
+    snapshot()
+    if (headless) {
+      if (holds().length) ctx.log(`${holds().length} clinical hold(s) remain — headless run without --clear-holds, not discharging`)
+      break
+    }
+    const left = pendingWork(board)
+    if (!left.approved && !left.proposed && !left.holds) break // nothing a person can still do here
+    const waitingFor = [
+      ...board.patients.filter((p) => p.items.some((i) => i.state === 'proposed')).map((p) => `approval for ${p.name}`),
+      ...(left.holds ? ['clinician sign-off on the clinical hold'] : []),
+    ].join(' and ')
+    if (waitingFor !== announced) {
+      console.log(`\nwaiting in the UI for ${waitingFor} (or re-run with --approve / --clear-holds)...`)
+      announced = waitingFor
+    }
+    phase(`Waiting for ${waitingFor}`, false)
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+
+  for (const p of board.patients) {
+    if (p.stage === 'discharged') continue
+    const open = p.items.filter((i) => i.state !== 'verified')
+    ctx.log(`${p.name} NOT discharged — ${open.length} unresolved: ${open.map((i) => `${i.id}[${i.state}]`).join(', ')}`)
   }
   phase('Run complete', false)
   snapshot()
