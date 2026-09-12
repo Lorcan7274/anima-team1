@@ -4,7 +4,7 @@
  *
  * Two journeys, one above the other, same arrivals: "With Homeward" is the
  * live simulator world (people are real records, every move a real action);
- * "Today's ward" is the same people through the manual-working model with the
+ * "Without Homeward" is the same people through the manual-working model with the
  * same number of beds. People are SVG figures that slide between stations;
  * in a ward bed each carries its discharge checklist as dots that turn green
  * as items verify. Polls /state every 1.5 s; POST /pause toggles the loop.
@@ -48,15 +48,9 @@ export const FLOW_PAGE = `<!doctype html>
   button.ghost:hover{background:#f4f4f1}
   .pressure{font-size:12px;color:#8a4b1c;background:rgba(236,131,90,.12);border-radius:999px;padding:6px 12px;white-space:nowrap}
 
-  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:18px 0}
-  .kpi{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:12px 16px}
-  .kpi .l{font-size:12px;color:var(--ink-3)}
-  .kpi .v{font-size:28px;font-weight:530;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1.15}
-  .kpi .v small{font-size:13px;color:var(--ink-3);font-weight:420}
-  .kpi.hero{border-color:rgba(12,163,12,.35);background:rgba(12,163,12,.04)}
-  .kpi.hero .v{color:#0a7a0a}
 
   .lane{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 18px 12px;margin-bottom:14px}
+  .top+.lane{margin-top:18px}
   .lane-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
   .lane-head h2{font-size:16px;font-weight:480}
   .lane-head .tag{font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:2px 6px}
@@ -93,44 +87,33 @@ export const FLOW_PAGE = `<!doctype html>
   .fig.fit svg path,.fig.fit svg circle{fill:#2f49d9}
   .more{position:absolute;font-size:11px;color:var(--ink-3);white-space:nowrap}
 
-  .foot{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;align-items:start}
-  .note{font-size:12px;color:var(--ink-3);line-height:1.5}
-  .note b{font-weight:480;color:var(--ink-2)}
-  .ticker{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:10px 14px}
-  .ticker h3{font-size:12px;font-weight:480;margin-bottom:4px;display:flex;gap:8px;align-items:baseline}
-  .ticker h3 span{color:var(--ink-3);font-weight:420;font-size:11px}
-  .w{font-family:ui-monospace,SFMono-Regular,monospace;font-size:10.5px;color:var(--ink-2);display:flex;gap:8px;align-items:baseline;padding:3px 0;border-top:1px solid var(--grid)}
-  .w:first-of-type{border-top:0}
-  .w .t{color:var(--ink-3);font-variant-numeric:tabular-nums;flex:none}
-  .w .m{font-weight:600;flex:none}
-  .w .m.post{color:var(--accent)}
-  .w .a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .w .st{margin-left:auto;flex:none;color:var(--ink-3)}
-  .w .st.bad{color:var(--critical)}
-  .logline{font-size:11.5px;color:var(--ink-2);padding:2px 0}
-  @media(max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}.foot{grid-template-columns:1fr}}
+  .speed{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink-3);background:var(--surface);
+         border:1px solid var(--hairline);border-radius:999px;padding:4px 6px 4px 12px}
+  .speed button{font:inherit;font-size:12px;font-weight:480;color:var(--ink-2);background:transparent;border:0;
+                border-radius:999px;padding:4px 10px;cursor:pointer}
+  .speed button:hover{background:#f4f4f1}
+  .speed button.on{background:var(--accent);color:#fff}
 </style></head><body>
 <div class="top">
   <div class="brand"><div class="mark">H</div><div><h1>Homeward · the whole ward</h1><div class="sub">every arrival, moved along by real actions in the NHS-SIM simulator</div></div></div>
   <span class="status" id="status"></span>
   <span class="pressure" id="pressure" style="display:none"></span>
+  <span class="speed" id="speed" title="simulator minutes advanced per tick">Speed
+    <button data-step="15" onclick="setSpeed(15)">15m</button><button data-step="30" onclick="setSpeed(30)">30m</button>
+    <button data-step="60" onclick="setSpeed(60)">1h</button><button data-step="120" onclick="setSpeed(120)">2h</button></span>
   <button class="ghost" id="pauseBtn" onclick="togglePause()">Pause</button>
   <div class="clock" id="clock">—<small id="clockSub">sim time since start</small></div>
 </div>
-<div class="kpis" id="kpis"></div>
 <div class="lane">
   <div class="lane-head"><h2>With Homeward</h2><span class="tag live">live simulator world</span>
     <span class="mini" id="miniAgent"></span></div>
   <div class="journey" id="laneAgent"></div>
 </div>
 <div class="lane">
-  <div class="lane-head"><h2>Today&rsquo;s ward</h2><span class="tag model">illustrative model · same arrivals, same beds</span>
+  <div class="lane-head"><h2>Without Homeward</h2><span class="tag model">same arrivals, same beds</span>
     <span class="mini" id="miniModel"></span></div>
   <div class="journey" id="laneModel"></div>
 </div>
-<div class="foot">
-  <div class="note" id="note"></div>
-  <div class="ticker"><h3>Live wire <span>· every call to the simulator, newest first</span></h3><div id="wire"></div></div>
 </div>
 <script>
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
@@ -261,33 +244,17 @@ function render(s) {
   const pr = document.getElementById('pressure')
   if (pressure && s.simNow - pressure.at < 3 * 3600000) { pr.style.display = ''; pr.textContent = 'Simulator: ' + pressure.detail } else pr.style.display = 'none'
   const c = s.counters
-  const kpi = (l, v, cls) => '<div class="kpi' + (cls ? ' ' + cls : '') + '"><div class="l">' + l + '</div><div class="v">' + v + '</div></div>'
-  document.getElementById('kpis').innerHTML =
-    kpi('Arrived at A&E', s.arrivals + '<small> since start</small>') +
-    kpi('Beds occupied', c.occupied + '<small> / ' + W + '</small>') +
-    kpi('Waiting for a bed', c.waitingForBed + '<small> vs model ' + c.modelWaitingForBed + '</small>') +
-    kpi('Home', c.home + '<small> · ' + c.homeFromWard + ' from the ward</small>') +
-    kpi('Median door&rarr;home', c.medianDoorToHomeHours === null ? '—' : c.medianDoorToHomeHours + '<small> h (ward)</small>') +
-    kpi('Bed-hours saved', c.bedHoursSaved + '<small> h vs model</small>', 'hero')
   const ppl = s.patients
   layoutLane('laneAgent', ppl, (p) => p.flow, (p) => p.bed, W, s.simNow, true)
   const m = s.model.people
   layoutLane('laneModel', ppl, (p) => (m[p.attendanceId] || { stage: p.flow }).stage, (p) => (m[p.attendanceId] || {}).bed, W, s.simNow, false)
   document.getElementById('miniAgent').innerHTML = '<span>beds <b>' + c.occupied + '/' + W + '</b></span><span>waiting for a bed <b>' + c.waitingForBed + '</b></span><span>home <b>' + c.home + '</b></span>'
+  document.querySelectorAll('#speed button').forEach((b) => b.classList.toggle('on', Number(b.dataset.step) === s.params.stepMinutes))
   document.getElementById('miniModel').innerHTML = '<span>beds <b>' + c.modelOccupied + '/' + W + '</b></span><span>waiting for a bed <b>' + c.modelWaitingForBed + '</b></span><span>home <b>' + c.modelHome + '</b></span>'
-  const P = s.params
-  document.getElementById('note').innerHTML =
-    '<b>What is real:</b> every person is a synthetic patient the simulator sent to A&E as time advanced (about 6&ndash;8 an hour); every move on the top lane is a real action ' +
-    '(assign, assess, refer, admit, the discharge checklist, discharge) and every checklist dot turns green only after the record was re-read. Letters: ' + (s.drafts === 'model' ? 'drafted by the model' : 'canned drafts (no model) &mdash; this screen is about flow') + '. ' +
-    '<b>What is assumed:</b> nobody in the simulator gets better on their own, so treatment before &ldquo;medically fit&rdquo; is a seeded ' + (P.stayMinutes[0] / 60) + '&ndash;' + (P.stayMinutes[1] / 60) + ' h stay; acuity 1&ndash;2 are admitted, ' + Math.round(P.admitShareAcuity3 * 100) + '% of acuity 3; the ward has ' + W + ' beds. ' +
-    '<b>Today&rsquo;s ward</b> is an illustrative model, not a measurement: the same arrivals and admissions, but each team checks its inbox on its own cadence, jobs run one after another, a quarter of checks miss, and discharge waits for the next ward round. Same beds &mdash; so when it fills, people wait.' +
-    (s.log && s.log.length ? '<div style="margin-top:8px">' + s.log.slice(-4).reverse().map((l) => '<div class="logline">' + esc(l) + '</div>').join('') + '</div>' : '')
-  document.getElementById('wire').innerHTML = (s.trace || []).slice(-8).reverse().map((t) =>
-    '<div class="w"><span class="t">' + new Date(t.at).toTimeString().slice(0, 8) + '</span><span class="m' + (t.method === 'POST' ? ' post' : '') + '">' + esc(t.method) + '</span>' +
-    '<span class="a">' + esc(t.action || t.path.split('?')[0].replace('/api/', '')) + (t.got ? ' → ' + esc(t.got) : '') + '</span><span class="st' + (t.ok ? '' : ' bad') + '">' + (t.status || 'ERR') + '</span></div>').join('') || '<div class="logline">No calls yet.</div>'
 }
 async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
 async function togglePause() { await fetch('/pause', { method: 'POST' }); tick() }
+async function setSpeed(step) { await fetch('/speed?step=' + step, { method: 'POST' }); tick() }
 window.addEventListener('resize', () => { if (last) render(last) })
 setInterval(tick, 1500); tick()
 </script></body></html>`
@@ -299,6 +266,10 @@ export function startFlowUi(state: FlowState, opts: { port?: number; replay?: bo
     if (url.pathname === '/state') {
       res.setHeader('content-type', 'application/json')
       try { res.end(JSON.stringify(snapshot(state))) } catch (err) { res.statusCode = 500; res.end(JSON.stringify({ error: String((err as Error).message) })) }
+    } else if (url.pathname === '/speed' && req.method === 'POST') {
+      const step = Number(url.searchParams.get('step'))
+      if (step >= 5 && step <= 720) state.params.stepMinutes = step // takes effect next tick
+      res.end(String(state.params.stepMinutes))
     } else if (url.pathname === '/pause' && req.method === 'POST') {
       if (!opts.replay) state.paused = !state.paused
       res.end(state.paused ? 'paused' : 'running')
