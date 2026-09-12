@@ -2,6 +2,12 @@
  * Minimal HTTP layer for the simulator: bearer auth, JSON bodies, typed errors.
  * Uses the global fetch shipped with Node 22, so there are no dependencies.
  */
+import { setDefaultResultOrder } from 'node:dns'
+
+// Some networks resolve the simulator to IPv6 first, and that route stalls on
+// POST bodies (small GETs pass, so the sim looks 'up' while every write hangs).
+// Preferring IPv4 matches what browsers end up doing and fixes it outright.
+setDefaultResultOrder('ipv4first')
 
 export class SimApiError extends Error {
   readonly status: number
