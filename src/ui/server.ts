@@ -1,61 +1,172 @@
 /**
- * Minimal ward-list UI: one page, polls /state every 2s, renders red/amber/
- * green rows. The "Confirm" button on a clinical hold is the human sign-off
- * beat. No dependencies — Node http + inline HTML.
+ * Ward-list UI, Mercury-style: light surfaces, Inter, sidebar, KPI tiles,
+ * card per patient with status-chip checklist rows, audit log.
  *
- * TODO(team): make it pretty. Structure and data flow are the point here.
+ * Polls /state every 2s. "Confirm reviewed" on a clinical hold is the human
+ * sign-off beat (POST /clear-hold). No dependencies — Node http + one page.
+ * Inter loads from Google Fonts; falls back to system-ui offline.
+ *
+ * Colors follow the dataviz skill's fixed status palette (icon + label,
+ * never color alone); text stays in ink tokens, the dot carries the color.
  */
 import { createServer } from 'node:http'
 import type { BoardState } from '../orchestrator/model.ts'
 import { clearHold } from '../orchestrator/run.ts'
 
-const COLORS: Record<string, string> = {
-  detected: '#c0392b',
-  resolving: '#e67e22',
-  awaiting_verification: '#e67e22',
-  verified: '#27ae60',
-  clinical_hold: '#8e44ad',
-  blocked_human: '#2c3e50',
-  failed: '#c0392b',
-}
-
 const PAGE = `<!doctype html>
-<meta charset="utf-8"><title>Discharge desk</title>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discharge Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  body{font-family:system-ui,sans-serif;margin:2rem;background:#f7f7f5}
-  h1{font-size:1.3rem} .patient{background:#fff;border-radius:8px;padding:1rem;margin:1rem 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-  .item{display:flex;gap:.6rem;align-items:baseline;padding:.35rem 0;border-top:1px solid #eee}
-  .dot{width:.7rem;height:.7rem;border-radius:50%;flex:none;position:relative;top:.08rem}
-  .owner{color:#888;font-size:.8rem;min-width:6.5rem} .evidence{color:#666;font-size:.8rem;font-style:italic}
-  .state{font-size:.75rem;color:#555;margin-left:auto;white-space:nowrap}
-  button{border:1px solid #8e44ad;background:#fff;color:#8e44ad;border-radius:4px;cursor:pointer}
-  #log{font-family:ui-monospace,monospace;font-size:.75rem;color:#555;white-space:pre-wrap;background:#fff;padding:1rem;border-radius:8px}
-</style>
-<h1>Neighbourhood discharge desk — <span id="world"></span> <small id="clock"></small></h1>
-<div id="board"></div>
-<h2 style="font-size:1rem">Audit log</h2><div id="log"></div>
+  :root{
+    --page:#f9f9f7; --surface:#ffffff; --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#898781;
+    --hairline:rgba(11,11,11,0.10); --grid:#e1e0d9;
+    --accent:#4a3aa7; --accent-soft:rgba(74,58,167,0.08);
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);
+       font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+
+  .app{display:grid;grid-template-columns:224px 1fr;min-height:100vh}
+  .sidebar{background:var(--surface);border-right:1px solid var(--hairline);padding:20px 14px;
+           display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px}
+  .brand .mark{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#4a3aa7,#7a63d8);
+               display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px}
+  .brand .name{font-weight:600;font-size:14px}
+  .brand .sub{font-size:11px;color:var(--ink-3)}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--ink-2);
+            font-weight:500;cursor:pointer}
+  .nav-item.active{background:var(--accent-soft);color:var(--accent)}
+  .nav-item:hover:not(.active){background:#f4f4f1}
+  .sidebar .foot{margin-top:auto;padding:10px;font-size:12px;color:var(--ink-3);border-top:1px solid var(--grid)}
+  .sidebar .foot b{color:var(--ink-2);font-weight:600}
+
+  .main{padding:28px 36px;max-width:1080px}
+  h1{font-size:22px;font-weight:600;letter-spacing:-0.01em}
+  .subtitle{color:var(--ink-3);font-size:13px;margin-top:2px}
+
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
+  .kpi{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 16px}
+  .kpi .label{font-size:12px;color:var(--ink-3);font-weight:500}
+  .kpi .value{font-size:26px;font-weight:600;letter-spacing:-0.02em;margin-top:2px}
+  .kpi .hint{font-size:11px;color:var(--ink-3)}
+
+  .card{background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
+        padding:18px 20px;margin-bottom:14px;box-shadow:0 1px 2px rgba(11,11,11,0.03)}
+  .patient-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .avatar{width:34px;height:34px;border-radius:50%;background:#eceaf6;color:var(--accent);
+          display:grid;place-items:center;font-weight:600;font-size:13px;flex:none}
+  .patient-name{font-weight:600;font-size:15px}
+  .patient-meta{color:var(--ink-3);font-size:12px}
+  .ready-pill{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .ready-pill .count{font-size:12px;color:var(--ink-2);font-weight:500;white-space:nowrap}
+  .bar{width:120px;height:6px;border-radius:3px;background:var(--grid);overflow:hidden}
+  .bar>i{display:block;height:100%;background:var(--good);border-radius:3px}
+
+  .item{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-top:1px solid var(--grid)}
+  .items{margin-top:12px}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;
+        font-size:11px;font-weight:600;color:var(--ink-2);background:#f4f4f1;flex:none;min-width:92px;justify-content:center}
+  .chip .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .owner{font-size:11px;color:var(--ink-3);min-width:76px;font-weight:500;text-transform:capitalize}
+  .item .title{font-weight:500}
+  .evidence{color:var(--ink-3);font-size:12px;font-style:italic}
+  .err{color:var(--critical);font-size:12px}
+  .item .right{margin-left:auto;flex:none}
+  button.confirm{font:inherit;font-size:12px;font-weight:600;color:var(--accent);background:var(--surface);
+                 border:1px solid var(--accent);border-radius:8px;padding:4px 12px;cursor:pointer}
+  button.confirm:hover{background:var(--accent-soft)}
+
+  .log-card h2{font-size:14px;font-weight:600;margin-bottom:10px}
+  #log{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;
+       display:flex;flex-direction:column-reverse;gap:4px;max-height:260px;overflow:auto}
+  #log div{border-top:1px solid var(--grid);padding-top:4px}
+</style></head><body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="mark">DD</div>
+      <div><div class="name">Discharge Desk</div><div class="sub">neighbourhood coordination</div></div></div>
+    <div class="nav-item active">Ward list</div>
+    <div class="nav-item" onclick="document.getElementById('audit').scrollIntoView({behavior:'smooth'})">Audit log</div>
+    <div class="foot">world <b id="world">—</b><br>sim clock <b id="clock">—</b></div>
+  </aside>
+  <main class="main">
+    <h1 id="greeting">Ward list</h1>
+    <div class="subtitle">Barriers detected from the record · resolved in the owning service · verified after time moves</div>
+    <div class="kpis" id="kpis"></div>
+    <div id="board"></div>
+    <div class="card log-card" id="audit"><h2>Audit log</h2><div id="log"></div></div>
+  </main>
+</div>
 <script>
-const COLORS = ${JSON.stringify(COLORS)}
-async function tick(){
-  const s = await (await fetch('/state')).json()
-  document.getElementById('world').textContent = s.world
-  document.getElementById('clock').textContent = new Date(s.simNow).toISOString().slice(0,16).replace('T',' ') + ' (sim)'
-  document.getElementById('board').innerHTML = s.patients.map(p => \`
-    <div class="patient"><strong>\${p.name}</strong> · \${p.patientId} · \${p.stage ?? '?'} \${p.location ? '· ' + p.location : ''}
-      <span style="color:#888">· \${(p.conditions||[]).join(', ')}</span>
-      \${p.items.map(i => \`<div class="item">
-        <span class="dot" style="background:\${COLORS[i.state]}"></span>
-        <span class="owner">\${i.owner}</span> <span>\${i.title}</span>
-        \${(i.evidence||[])[0] ? '<span class="evidence">“' + i.evidence[0].quote + '”</span>' : ''}
-        <span class="state">\${i.state}\${i.error ? ' — ' + i.error : ''}
-          \${i.state === 'clinical_hold' ? '<button onclick="clearHold(\\'' + i.id + '\\')">Confirm reviewed</button>' : ''}
-        </span></div>\`).join('')}
-    </div>\`).join('')
-  document.getElementById('log').textContent = (s.log || []).slice(-25).join('\\n')
+const META = {
+  detected:               { label: 'Barrier',    color: 'var(--serious)' },
+  resolving:              { label: 'Working',    color: 'var(--warning)' },
+  awaiting_verification:  { label: 'Verifying',  color: 'var(--warning)' },
+  verified:               { label: 'Verified',   color: 'var(--good)' },
+  failed:                 { label: 'Failed',     color: 'var(--critical)' },
+  clinical_hold:          { label: 'Clinician',  color: 'var(--accent)' },
+  blocked_human:          { label: 'Human decision', color: 'var(--ink-2)' },
 }
-async function clearHold(id){ await fetch('/clear-hold?item=' + id, {method:'POST'}); tick() }
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
+const chip = (state) => {
+  const m = META[state] || { label: state, color: 'var(--ink-3)' }
+  return '<span class="chip"><span class="dot" style="background:' + m.color + '"></span>' + m.label + '</span>'
+}
+const kpi = (label, value, hint) =>
+  '<div class="kpi"><div class="label">' + label + '</div><div class="value">' + value + '</div>' +
+  (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>'
+
+function render(s) {
+  document.getElementById('world').textContent = s.world
+  document.getElementById('clock').textContent = new Date(s.simNow).toISOString().slice(0, 16).replace('T', ' ')
+  const all = s.patients.flatMap((p) => p.items)
+  const ready = s.patients.filter((p) => p.items.length && p.items.every((i) => i.state === 'verified')).length
+  const open = all.filter((i) => ['detected','resolving','awaiting_verification','failed'].includes(i.state)).length
+  const human = all.filter((i) => i.state === 'clinical_hold' || i.state === 'blocked_human').length
+  document.getElementById('kpis').innerHTML =
+    kpi('On the ward', s.patients.length, 'tracked patients') +
+    kpi('Ready to discharge', ready, 'every item verified') +
+    kpi('Open barriers', open, 'agent is working these') +
+    kpi('Awaiting a human', human, 'holds + external decisions')
+
+  document.getElementById('board').innerHTML = s.patients.map((p) => {
+    const done = p.items.filter((i) => i.state === 'verified').length
+    const pct = p.items.length ? Math.round((100 * done) / p.items.length) : 0
+    const initials = esc(p.name).split(' ').map((w) => w[0]).slice(0, 2).join('')
+    return '<div class="card">' +
+      '<div class="patient-head"><div class="avatar">' + initials + '</div>' +
+      '<div><div class="patient-name">' + esc(p.name) + '</div>' +
+      '<div class="patient-meta">' + esc(p.patientId) + ' · ' + esc(p.stage ?? '?') +
+      (p.location ? ' · ' + esc(p.location) : '') + ' · ' + esc((p.conditions || []).join(', ')) + '</div></div>' +
+      '<div class="ready-pill"><span class="count">' + done + ' of ' + p.items.length + ' verified</span>' +
+      '<span class="bar"><i style="width:' + pct + '%"></i></span></div></div>' +
+      '<div class="items">' + p.items.map((i) =>
+        '<div class="item">' + chip(i.state) +
+        '<span class="owner">' + esc(i.owner) + '</span>' +
+        '<span><span class="title">' + esc(i.title) + '</span>' +
+        ((i.evidence || [])[0] ? ' <span class="evidence">&ldquo;' + esc(i.evidence[0].quote) + '&rdquo;</span>' : '') +
+        (i.error ? ' <span class="err">' + esc(i.error) + '</span>' : '') + '</span>' +
+        (i.state === 'clinical_hold'
+          ? '<span class="right"><button class="confirm" onclick="clearHold(\\'' + i.id + '\\')">Confirm reviewed</button></span>'
+          : '') +
+        '</div>').join('') + '</div></div>'
+  }).join('')
+
+  document.getElementById('log').innerHTML = (s.log || []).slice(-40).map((l) => '<div>' + esc(l) + '</div>').join('')
+}
+async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
+async function clearHold(id) { await fetch('/clear-hold?item=' + encodeURIComponent(id), { method: 'POST' }); tick() }
 setInterval(tick, 2000); tick()
-</script>`
+</script></body></html>`
 
 export function startUi(board: BoardState, port = 4600): void {
   createServer((req, res) => {
