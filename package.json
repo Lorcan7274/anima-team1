@@ -11,6 +11,8 @@
     "demo": "node scripts/demo-discharge.ts",
     "demo:detect": "node scripts/demo-discharge.ts --detect-only",
     "fallback": "node scripts/serve-fallback.ts",
+    "flow": "node scripts/flow-sim.ts",
+    "flow:replay": "node scripts/flow-sim.ts --replay",
     "quickstart": "node scripts/quickstart.ts",
     "test": "node --test \"test/**/*.test.ts\"",
     "evals": "node --test test/invariants.test.ts test/baseline.test.ts",
