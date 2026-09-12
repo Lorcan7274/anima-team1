@@ -176,16 +176,23 @@ const PAGE = `<!doctype html>
   .loading-hero .spin{width:34px;height:34px;border-width:3px}
   .loading-hero .what{font-size:14px;font-weight:480}
   .loading-hero .why{font-size:12px;color:var(--ink-3)}
-  #log{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;
-       display:flex;flex-direction:column-reverse;gap:4px;max-height:300px;overflow:auto}
-  #log div{border-top:1px solid var(--grid);padding-top:4px}
+  #wiretrace{display:flex;flex-direction:column;max-height:340px;overflow:auto}
+  #wiretrace .w{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink-2);
+                display:flex;gap:6px;align-items:baseline;padding:5px 0;border-top:1px solid var(--grid)}
+  #wiretrace .w:first-child{border-top:none}
+  #wiretrace .t{color:var(--ink-3);flex:none;font-variant-numeric:tabular-nums}
+  #wiretrace .m{font-weight:600;flex:none}
+  #wiretrace .m.post{color:var(--accent)}
+  #wiretrace .a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #wiretrace .st{margin-left:auto;flex:none;color:var(--ink-3)}
+  #wiretrace .st.bad{color:var(--critical)}
 </style></head><body>
 <div class="app">
   <aside class="sidebar">
     <div class="brand"><div class="mark">H</div>
       <div><div class="name">Homeward</div><div class="sub">discharge coordination</div></div></div>
     <div class="nav-item active">Ward round</div>
-    <div class="nav-item" onclick="document.getElementById('audit').scrollIntoView({behavior:'smooth'})">Activity</div>
+    <div class="nav-item" onclick="openModal('trace')">Full trace</div>
     <div class="foot">world <b id="world">—</b><br>sim clock <b id="clock">—</b></div>
   </aside>
   <main class="main">
@@ -201,7 +208,7 @@ const PAGE = `<!doctype html>
       <div id="board"></div>
       <div class="rail">
         <div class="card"><h2>Services</h2><div id="services"></div></div>
-        <div class="card log-card" id="audit"><h2>Activity</h2><div id="log"></div></div>
+        <div class="card log-card" id="audit"><h2>Trace <span style="font-size:11px;color:var(--ink-3);font-weight:420">· live, newest first</span></h2><div id="wiretrace"></div></div>
       </div>
     </div>
   </main>
@@ -288,6 +295,14 @@ const itemDetail = (i, log) => {
   return d.length ? '<div class="detail">' + d.map((x) => '<div>' + x + '</div>').join('') + '</div>' : ''
 }
 const prettyJson = (raw) => { try { return JSON.stringify(JSON.parse(raw), null, 1) } catch { return raw } }
+const railWire = (t) =>
+  '<div class="w"><span class="t">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
+  '<span class="m' + (t.method === 'POST' ? ' post' : '') + '">' + esc(t.method) + '</span>' +
+  '<span class="a">' + esc(t.action || t.path.split('?')[0].replace('/api/', '')) + '</span>' +
+  '<span class="st' + (t.ok ? '' : ' bad') + '">' + (t.status || 'ERR') + '</span></div>'
+const renderRailTrace = (s) =>
+  (document.getElementById('wiretrace').innerHTML =
+    ((s.trace || []).slice(-40).reverse().map(railWire).join('')) || '<div class="empty">No calls yet.</div>')
 const wireRow = (t, withPayload) =>
   '<div class="call"><div class="head">' +
   '<span class="t">' + new Date(t.at).toTimeString().slice(0, 8) + '</span>' +
@@ -422,7 +437,7 @@ function render(s) {
       '<div class="what">' + esc(s.phase || 'Setting up the demo world…') + '</div>' +
       '<div class="why">Live calls against the NHS-SIM simulator — the ward list appears as records load.</div></div></div>'
     document.getElementById('services').innerHTML = ''
-    document.getElementById('log').innerHTML = (s.log || []).slice(-10).map((l) => '<div>' + esc(l) + '</div>').join('')
+    renderRailTrace(s)
     return
   }
   const all = s.patients.flatMap((p) => p.items)
@@ -491,7 +506,7 @@ function render(s) {
       '<span class="n' + (n ? '' : ' clear') + '">' + (n ? n + ' open' : 'clear') + '</span></div>'
   }).join('')
 
-  document.getElementById('log').innerHTML = (s.log || []).slice(-40).map((l) => '<div>' + esc(l) + '</div>').join('')
+  renderRailTrace(s)
 }
 async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
 function itemStory(id) { openModal('item:' + id) }
