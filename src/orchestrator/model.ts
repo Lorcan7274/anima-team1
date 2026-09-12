@@ -97,6 +97,8 @@ export interface PatientRow {
   /** hospital attendance stage: waiting | assessing | take | inpatient | discharged */
   stage?: string
   location?: string
+  /** Sim time the agent world freed the bed (attendance discharged). */
+  dischargedAt?: number
   items: ChecklistItem[]
 }
 
@@ -104,6 +106,8 @@ export interface PatientRow {
 export interface BoardState {
   world: string
   simNow: number
+  /** Sim time the cohort was deemed medically fit — the story panel's t=0. */
+  fitAt?: number
   patients: PatientRow[]
   /** Human-readable audit log, newest last. */
   log: string[]
