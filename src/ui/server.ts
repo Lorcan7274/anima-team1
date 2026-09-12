@@ -6,7 +6,9 @@
  *
  * Polls /state every 2s. Buttons: "Approve plan" (header, staff approval of
  * all proposed items), "Confirm reviewed" (clinical hold sign-off),
- * "Prepare escalation" (blocked_human handover). No dependencies — Node http
+ * "Prepare escalation" (blocked_human handover). Each KPI tile opens a modal
+ * over a blurred backdrop listing the items behind that number with what the
+ * agent planned, did, verified, and the evidence it quoted. No dependencies — Node http
  * + one page. Inter loads from Google Fonts; falls back to system-ui offline.
  *
  * Colors follow the dataviz skill's fixed status palette (icon + label,
@@ -67,6 +69,30 @@ const PAGE = `<!doctype html>
   .kpi .value{font-size:26px;font-weight:530;letter-spacing:-0.01em;margin-top:2px}
   .kpi .hint{font-size:11px;color:var(--ink-3)}
   .kpi.has-spark{padding-bottom:40px}
+  .kpi{cursor:pointer;transition:border-color .12s,box-shadow .12s}
+  .kpi:hover,.kpi:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none}
+  .kpi .more{position:absolute;top:12px;right:14px;font-size:11px;color:var(--ink-3)}
+
+  .modal-backdrop{position:fixed;inset:0;z-index:50;display:none;place-items:center;padding:24px;
+                  background:rgba(11,11,11,0.28);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  .modal-backdrop.open{display:grid}
+  .modal{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;width:min(760px,100%);
+         max-height:84vh;overflow:auto;padding:20px 24px 24px;box-shadow:0 20px 60px rgba(11,11,11,0.18)}
+  .modal-head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+  .modal-head h2{font-size:17px;font-weight:480}
+  .modal-head .sub{color:var(--ink-3);font-size:12px;margin-top:2px}
+  .modal-head button{margin-left:auto}
+  .modal .group{margin-top:16px}
+  .modal .group h3{font-size:13px;font-weight:480;display:flex;gap:8px;align-items:baseline}
+  .modal .group h3 span{color:var(--ink-3);font-size:11px;font-weight:420}
+  .mi{padding:10px 0;border-top:1px solid var(--grid)}
+  .mi .row{display:flex;align-items:baseline;gap:10px}
+  .mi .detail{margin:6px 0 0 0;padding-left:8px;border-left:2px solid var(--grid);font-size:12px;color:var(--ink-2)}
+  .mi .detail>div{margin-top:3px}
+  .mi .detail b{font-weight:480;color:var(--ink)}
+  .mi .detail code{font:inherit;font-size:11px;color:var(--ink-3)}
+  .mi .trace{color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .modal .empty{color:var(--ink-3);font-size:13px;padding:18px 0}
   .kpi svg{position:absolute;left:0;right:0;bottom:0;width:100%;height:28px;display:block}
 
   .content{display:grid;grid-template-columns:1fr 300px;gap:14px;align-items:start}
@@ -148,6 +174,13 @@ const PAGE = `<!doctype html>
     </div>
   </main>
 </div>
+<div class="modal-backdrop" id="modal" onclick="if (event.target === this) closeModal()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head"><div><h2 id="modalTitle"></h2><div class="sub" id="modalSub"></div></div>
+      <button class="confirm" onclick="closeModal()">Close</button></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
 <script>
 const META = {
   proposed:               { label: 'Proposed',   color: 'var(--serious)' },
@@ -184,11 +217,72 @@ const spark = () => {
     '<polygon points="0,30 ' + pts + ' 100,30" fill="rgba(82,102,235,0.10)"/>' +
     '<polyline points="' + pts + '" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>'
 }
-const kpi = (label, value, hint, extra) =>
-  '<div class="kpi' + (extra ? ' has-spark' : '') + '"><div class="label">' + label + '</div><div class="value">' + value + '</div>' +
+const kpi = (key, label, value, hint, extra) =>
+  '<div class="kpi' + (extra ? ' has-spark' : '') + '" role="button" tabindex="0" onclick="openModal(\\'' + key + '\\')" ' +
+  'onkeydown="if (event.key === \\'Enter\\' || event.key === \\' \\') { event.preventDefault(); openModal(\\'' + key + '\\') }">' +
+  '<span class="more">details</span><div class="label">' + label + '</div><div class="value">' + value + '</div>' +
   (hint ? '<div class="hint">' + hint + '</div>' : '') + (extra || '') + '</div>'
 
+// --- KPI detail modal: what the agent is doing behind each number ------------
+const CATS = {
+  ward:  { title: 'On the ward',        sub: 'every tracked patient and their full checklist',
+           patients: (s) => s.patients, items: (p) => p.items },
+  ready: { title: 'Ready to discharge', sub: 'patients with every item verified',
+           patients: (s) => s.patients.filter((p) => p.items.length && p.items.every((i) => i.state === 'verified')), items: (p) => p.items },
+  open:  { title: 'Open barriers',      sub: 'items the agent is proposing, working or verifying',
+           patients: (s) => s.patients, items: (p) => p.items.filter((i) => OPEN.includes(i.state)) },
+  human: { title: 'Awaiting a human',   sub: 'clinical holds and external decisions automation must not touch',
+           patients: (s) => s.patients, items: (p) => p.items.filter((i) => i.state === 'clinical_hold' || i.state === 'blocked_human') },
+}
+let lastState = null
+let openKey = null
+const when = (ms) => ms ? new Date(ms).toISOString().slice(0, 16).replace('T', ' ') : ''
+const itemDetail = (i, log) => {
+  const d = []
+  if (i.proposedAction && (i.state === 'proposed' || i.state === 'approved')) d.push('<b>Plan:</b> ' + esc(i.proposedAction))
+  if (i.approval) d.push('<b>Approved</b> by ' + esc(i.approval.by) + (i.approval.at ? ' at ' + when(i.approval.at) : ''))
+  if (i.humanReason) d.push('<b>Why a human:</b> ' + esc(i.humanReason))
+  if (i.resolution) d.push('<b>Agent did:</b> ' + esc(i.resolution.action) + ' &rarr; <code>' + esc(i.resolution.resourceId) + '</code>' +
+    (i.resolution.atSimTime ? ' at ' + when(i.resolution.atSimTime) : '') + ' <code>key ' + esc(i.resolution.idempotencyKey) + '</code>')
+  if (i.verification) d.push('<b>' + (i.verification.passed ? 'Verified:' : 'Checked, not yet:') + '</b> ' + esc(i.verification.observed) +
+    (i.verification.atSimTime ? ' at ' + when(i.verification.atSimTime) : ''))
+  if (i.error) d.push('<b class="err">Error:</b> <span class="err">' + esc(i.error) + '</span>')
+  if (i.escalation) d.push('<b>Escalated to</b> ' + esc(i.escalation.responsibleTeam) + ' &mdash; ' + esc(i.escalation.nextAction) + '<br>' + esc(i.escalation.note))
+  for (const e of i.evidence || []) d.push('<span class="evidence">&ldquo;' + q(e.quote) + '&rdquo;</span> <code>' + esc(e.site) + ' ' + esc(e.resourceId) + '</code>')
+  const trace = (log || []).filter((l) => l.includes(i.id)).slice(-3)
+  for (const l of trace) d.push('<span class="trace">' + esc(l) + '</span>')
+  return d.length ? '<div class="detail">' + d.map((x) => '<div>' + x + '</div>').join('') + '</div>' : ''
+}
+function renderModal() {
+  const cat = CATS[openKey]
+  if (!cat || !lastState) return
+  const s = lastState
+  document.getElementById('modalTitle').textContent = cat.title
+  document.getElementById('modalSub').textContent = cat.sub
+  const groups = cat.patients(s).map((p) => ({ p, items: cat.items(p) })).filter((g) => openKey === 'ward' || openKey === 'ready' || g.items.length)
+  document.getElementById('modalBody').innerHTML = groups.length ? groups.map((g) =>
+    '<div class="group"><h3>' + esc(g.p.name) + ' <span>' + esc(g.p.patientId) + ' · ' + esc(g.p.stage ?? '?') +
+    (g.p.location ? ' · ' + esc(g.p.location) : '') + ' · ' + g.items.filter((i) => i.state === 'verified').length + ' of ' + g.items.length + ' verified</span></h3>' +
+    (g.items.length ? g.items.map((i) =>
+      '<div class="mi"><div class="row">' + chip(i.state) + '<span class="owner">' + (OWNER_LABEL[i.owner] || esc(i.owner)) + '</span>' +
+      '<span class="title">' + esc(i.title) + '</span></div>' + itemDetail(i, s.log) + '</div>').join('')
+      : '<div class="empty">No items in this category for this patient.</div>') + '</div>').join('')
+    : '<div class="empty">Nothing here right now.</div>'
+}
+function openModal(key) {
+  openKey = key
+  renderModal()
+  document.getElementById('modal').classList.add('open')
+  document.querySelector('#modal button').focus()
+}
+function closeModal() {
+  openKey = null
+  document.getElementById('modal').classList.remove('open')
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openKey) closeModal() })
+
 function render(s) {
+  lastState = s
   document.getElementById('world').textContent = s.world
   document.getElementById('clock').textContent = s.simNow ? new Date(s.simNow).toISOString().slice(0, 16).replace('T', ' ') : '—'
   document.getElementById('status').innerHTML = s.busy
@@ -211,10 +305,11 @@ function render(s) {
   if (history[history.length - 1] !== open) history.push(open)
   if (history.length > 60) history.shift()
   document.getElementById('kpis').innerHTML =
-    kpi('On the ward', s.patients.length, 'tracked patients') +
-    kpi('Ready to discharge', ready, 'every item verified') +
-    kpi('Open barriers', open, 'agent is working these', spark()) +
-    kpi('Awaiting a human', human, 'holds + external decisions')
+    kpi('ward', 'On the ward', s.patients.length, 'tracked patients') +
+    kpi('ready', 'Ready to discharge', ready, 'every item verified') +
+    kpi('open', 'Open barriers', open, 'agent is working these', spark()) +
+    kpi('human', 'Awaiting a human', human, 'holds + external decisions')
+  if (openKey) renderModal()
 
   const proposed = all.filter((i) => i.state === 'proposed').length
   const btn = document.getElementById('approveBtn')
