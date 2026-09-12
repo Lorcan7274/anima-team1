@@ -215,9 +215,11 @@ function render(s) {
         ((i.evidence || [])[0] ? ' <span class="evidence">&ldquo;' + q(i.evidence[0].quote) + '&rdquo;</span>' : '') +
         (i.state === 'proposed' && i.proposedAction ? ' <span class="evidence">&rarr; ' + esc(i.proposedAction) + '</span>' : '') +
         (i.error ? ' <span class="err">' + esc(i.error) + '</span>' : '') +
+        (i.generated === 'fallback' ? ' <span class="err">⚠ fallback draft — model unavailable</span>' : '') +
         (i.escalation
           ? '<div class="escalation"><b>Escalated to ' + esc(i.escalation.responsibleTeam) + '</b> — ' +
-            esc(i.escalation.nextAction) + '<br>' + esc(i.escalation.note) + ' <i>Case remains blocked.</i></div>'
+            esc(i.escalation.nextAction) + '<br>' + esc(i.escalation.note) + ' <i>Case remains blocked.</i>' +
+            (i.escalation.source === 'fallback' ? ' <span class="err">⚠ fallback draft</span>' : '') + '</div>'
           : '') + '</span>' +
         (i.state === 'clinical_hold'
           ? '<span class="right"><button class="confirm" onclick="clearHold(\\'' + i.id + '\\')">Confirm reviewed</button></span>'

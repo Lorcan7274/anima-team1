@@ -207,28 +207,42 @@ export async function detectForPatient(
   }
 
   // LLM pass: read the record's free text and merge proposals into the
-  // rule-detected items as extra evidence. Unmatched ('other') proposals are
-  // surfaced via log — they never become blocking items on their own.
+  // rule-detected items as extra evidence. Every quote must be LOCATED in the
+  // actual record before it is cited — a hallucinated line must never render
+  // as a record quote. Unlocatable quotes are dropped and counted.
+  const sources = hospRes
+    .filter((r) => r.kind === 'document' || r.kind === 'message')
+    .map((r) => ({ id: r.id, haystack: `${r.title ?? ''} — ${String((r.data as any)?.text ?? '')}`.toLowerCase() }))
+  const locateQuote = (quote: string): string | undefined =>
+    sources.find((src) => src.haystack.includes(quote.trim().toLowerCase()))?.id
   const freeText = hospRes
     .filter((r) => r.kind === 'document' || r.kind === 'message')
     .map((r) => `[${r.kind} ${r.id}] ${r.title ?? ''} — ${(r.data as any)?.text ?? ''}`)
     .join('\n')
   if (freeText.trim()) {
-    const proposals = await proposeBarriersFromText(`hospital record for ${P}`, freeText)
+    const { barriers: proposals } = await proposeBarriersFromText(`hospital record for ${P}`, freeText)
+    let dropped = 0
     for (const prop of proposals) {
+      const located = prop.quotes
+        .map((quote) => ({ quote, sourceId: locateQuote(quote) }))
+        .filter((x): x is { quote: string; sourceId: string } => !!x.sourceId)
+      dropped += prop.quotes.length - located.length
       const target = prop.kind === 'other' ? undefined : items.find((i) => i.id === slug(prop.kind))
       if (target) {
-        for (const quote of prop.quotes.slice(0, 2)) {
-          if (!target.evidence.some((e) => e.quote === quote)) target.evidence.push(ev('record-text', 'hospital', quote))
+        for (const { quote, sourceId } of located.slice(0, 2)) {
+          if (!target.evidence.some((e) => e.quote === quote)) target.evidence.push(ev(sourceId, 'hospital', quote))
         }
-      } else {
+      } else if (located.length) {
         patient.insights ??= []
         if (!patient.insights.some((x) => x.title === prop.title)) {
-          patient.insights.push({ title: prop.title, quote: prop.quotes[0] ?? '' })
+          patient.insights.push({ title: prop.title, quote: located[0].quote })
           log?.(`agent reading noted (non-blocking): ${prop.title}`)
         }
+      } else {
+        dropped += prop.quotes.length === 0 ? 1 : 0
       }
     }
+    if (dropped > 0) log?.(`dropped ${dropped} model quote(s) not found verbatim in the record`)
   }
 
   return items

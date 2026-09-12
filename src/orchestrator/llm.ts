@@ -24,8 +24,20 @@ operational, factual prose. Never invent clinical facts: use only the record
 text you are given. Frame everything as operational readiness pending clinician
 sign-off, never as clinical judgement.`
 
-async function structured<T>(name: string, schema: z.ZodType<T>, prompt: string, fallback: () => T): Promise<T> {
-  if (!process.env.OPENAI_API_KEY) return fallback()
+export type LlmSource = 'model' | 'fallback'
+
+/**
+ * Runs a structured model call and reports HOW the answer was produced.
+ * Callers must surface source === 'fallback' in the UI — a judge asking
+ * "is that the model?" must never get a silent "no".
+ */
+async function structured<T>(
+  name: string,
+  schema: z.ZodType<T>,
+  prompt: string,
+  fallback: () => T,
+): Promise<{ value: T; source: LlmSource }> {
+  if (!process.env.OPENAI_API_KEY) return { value: fallback(), source: 'fallback' }
   try {
     const agent = app.agent({
       name,
@@ -35,10 +47,10 @@ async function structured<T>(name: string, schema: z.ZodType<T>, prompt: string,
       output: { schema },
     })
     const result = await app.run(agent, prompt)
-    return result.output.value as T
+    return { value: result.output.value as T, source: 'model' }
   } catch (err) {
     console.error(`llm ${name} failed, using fallback: ${String((err as Error).message).slice(0, 160)}`)
-    return fallback()
+    return { value: fallback(), source: 'fallback' }
   }
 }
 
@@ -63,7 +75,10 @@ export type ProposedBarrier = z.infer<typeof ProposedBarrierSchema>['barriers'][
  * barriers, each justified by verbatim quotes. detect.ts merges known kinds
  * into the rule-detected items as extra evidence and logs 'other' proposals.
  */
-export async function proposeBarriersFromText(source: string, text: string): Promise<ProposedBarrier[]> {
+export async function proposeBarriersFromText(
+  source: string,
+  text: string,
+): Promise<{ barriers: ProposedBarrier[]; source: LlmSource }> {
   // Stable instructions first, variable record text last — the OpenAI prompt
   // cache matches on stable prefixes, so keep everything constant up front.
   const out = await structured(
@@ -74,7 +89,7 @@ export async function proposeBarriersFromText(source: string, text: string): Pro
       `Source: ${source}\nRecord text:\n"""\n${text}\n"""`,
     () => ({ barriers: [] }),
   )
-  return out.barriers
+  return { barriers: out.value.barriers, source: out.source }
 }
 
 // --- Discharge summary --------------------------------------------------------
@@ -98,8 +113,8 @@ export async function draftDischargeSummary(context: {
   documentTexts: string[]
   bloodSummary: string
   planned: string[]
-}): Promise<DraftedSummary> {
-  return structured(
+}): Promise<{ sections: DraftedSummary; source: LlmSource }> {
+  const out = await structured(
     'summary_writer',
     SummarySchema,
     `Draft the seven sections of a discharge summary for ${context.patientName} ` +
@@ -111,15 +126,17 @@ export async function draftDischargeSummary(context: {
       `(a GP letter is chasing a missing reconciliation attachment). ` +
       `Keep each section to 1-3 sentences, operational tone.`,
     () => ({
-      reason: 'Admitted with decompensated heart failure (day 3 of admission).',
-      course: 'Diuresis on AMU; stable for discharge planning.',
-      diagnoses: `${context.conditions.join('; ')}.`,
-      medicationChanges: 'Furosemide continued; discharge supply arranged. Medicines reconciliation completed and included here.',
+      // Generic template — must read correctly for ANY patient, not just Amira.
+      reason: `Admitted for management of ${context.conditions[0]?.toLowerCase() ?? 'the documented condition'}.`,
+      course: 'Inpatient course as documented; operationally ready for discharge planning pending clinician sign-off.',
+      diagnoses: `${context.conditions.join('; ') || 'As per record'}.`,
+      medicationChanges: 'Discharge medication supply arranged; medicines reconciliation completed and included here.',
       results: context.bloodSummary,
       followUp: context.planned.join(' '),
-      gpActions: 'Review repeat bloods when resulted; assess diuretic tolerance at telephone review.',
+      gpActions: 'Review outstanding results when available; assess at the arranged follow-up.',
     }),
   )
+  return { sections: out.value, source: out.source }
 }
 
 // --- Escalation handover ------------------------------------------------------
@@ -141,8 +158,8 @@ export async function draftEscalation(context: {
   title: string
   humanReason: string
   quotes: string[]
-}): Promise<Escalation> {
-  return structured(
+}): Promise<{ escalation: Escalation; source: LlmSource }> {
+  const out = await structured(
     'escalation_writer',
     EscalationSchema,
     `Draft an escalation handover for a discharge barrier the coordination agent ` +
@@ -157,6 +174,7 @@ export async function draftEscalation(context: {
       note: `${context.patientName}'s ${context.title.toLowerCase()}. ${context.humanReason} Evidence: ${context.quotes[0] ?? 'see record'}.`,
     }),
   )
+  return { escalation: out.value, source: out.source }
 }
 
 // --- Test-order clinical details ---------------------------------------------
@@ -166,14 +184,16 @@ const DetailsSchema = z.object({
 })
 
 /** Clinical details for a blood-test order, citing the real result history. */
-export async function draftClinicalDetails(bloodSummary: string): Promise<string> {
+export async function draftClinicalDetails(
+  bloodSummary: string,
+): Promise<{ text: string; source: LlmSource }> {
   const out = await structured(
     'order_writer',
     DetailsSchema,
-    `Write the clinicalDetails field for a ROUTINE post-discharge U&E + FBC order. ` +
-      `Patient has CKD and takes a loop diuretic. Result history: ${bloodSummary} ` +
+    `Write the clinicalDetails field for a ROUTINE post-discharge blood monitoring order. ` +
+      `Result history: ${bloodSummary} ` +
       `Be accurate about trends — do not exaggerate. 1-2 sentences.`,
-    () => ({ clinicalDetails: `Routine post-discharge monitoring: CKD on loop diuretic. ${bloodSummary}` }),
+    () => ({ clinicalDetails: `Routine post-discharge monitoring. ${bloodSummary}` }),
   )
-  return out.clinicalDetails
+  return { text: out.value.clinicalDetails, source: out.source }
 }

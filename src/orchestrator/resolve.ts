@@ -20,7 +20,8 @@ const simNow = async (ctx: OrchestratorContext) => Number((await ctx.sim.clock()
 /** Routine U&E order citing the real trend. Verified: open -> available by +121 min. */
 const resolveBloods: Resolver = async (ctx, item) => {
   const summary = await bloodSummary(ctx.sim, item.patientId)
-  const details = await draftClinicalDetails(summary)
+  const { text: details, source: detailsSource } = await draftClinicalDetails(summary)
+  item.generated = detailsSource
   // TODO(team): add a second order for FBC (neutropenia history) — same shape, panelId 'fbc'.
   const order = await ctx.sim.orderBloodTest(
     'hospital',
@@ -59,7 +60,7 @@ const resolveVisit: Resolver = async (ctx, item) => {
 const resolveSummary: Resolver = async (ctx, item) => {
   const row = ctx.board.patients.find((p) => p.patientId === item.patientId)
   const bloods = await bloodSummary(ctx.sim, item.patientId)
-  const sections = await draftDischargeSummary({
+  const { sections, source: summarySource } = await draftDischargeSummary({
     patientName: row?.name ?? item.patientId,
     conditions: row?.conditions ?? [],
     documentTexts: item.evidence.map((e) => e.quote),
@@ -70,6 +71,7 @@ const resolveSummary: Resolver = async (ctx, item) => {
       'GP telephone review within 48h.',
     ],
   })
+  item.generated = summarySource
   const saved = await ctx.sim.siteAction(
     'hospital',
     { type: 'save_discharge_summary', patientId: item.patientId, title: `Discharge summary - ${row?.name ?? item.patientId}`, dischargeSections: sections },

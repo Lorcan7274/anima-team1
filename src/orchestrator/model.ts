@@ -74,8 +74,10 @@ export interface ChecklistItem {
   humanReason?: string
   /** Summary items on blocked patients: save the draft but never send it. */
   draftOnly?: boolean
+  /** Whether model output on this item came from the live model or the canned fallback. */
+  generated?: 'model' | 'fallback'
   /** Prepared handover for a blocked_human item; the case STAYS blocked. */
-  escalation?: { responsibleTeam: string; nextAction: string; note: string }
+  escalation?: { responsibleTeam: string; nextAction: string; note: string; source?: 'model' | 'fallback' }
   error?: string
 }
 

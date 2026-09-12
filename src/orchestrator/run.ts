@@ -120,12 +120,13 @@ export async function prepareEscalation(board: BoardState, itemId: string): Prom
   for (const p of board.patients) {
     const item = p.items.find((i) => i.id === itemId && i.state === 'blocked_human')
     if (!item) continue
-    item.escalation = await draftEscalation({
+    const { escalation, source } = await draftEscalation({
       patientName: p.name,
       title: item.title,
       humanReason: item.humanReason ?? '',
       quotes: item.evidence.map((e) => e.quote),
     })
+    item.escalation = { ...escalation, source }
     board.log.push(`ESCALATION prepared for ${itemId} -> ${item.escalation.responsibleTeam} (case remains blocked)`)
     return true
   }
