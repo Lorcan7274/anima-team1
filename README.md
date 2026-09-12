@@ -1,4 +1,4 @@
-# Homeward: discharge-readiness orchestrator
+# Homeward, discharge-readiness orchestrator
 
 Built at the OpenAI × Anima Healthtech Hackathon (12 Sep 2026, Team 1) on the
 [NHS-SIM](https://sim.animahacks.com/docs/) synthetic healthcare simulator.
@@ -72,12 +72,37 @@ One page served by `node:http` on `localhost:4600`, polling `/state`:
   barrier dependency graph, click any task for its story: record evidence, plan and
   approval, every call the agent made to the owning service, drafting provenance
   (model vs fallback), independent verification, escalation.
-- **Right, the story.** *Same ward, twice*: the live agent world beside an
-  **illustrative** manual-working model (`src/story/baseline.ts`, parameters stated on
-  the panel), patient avatars moving bed → home with a progress ring, counters for beds
-  freed, bed-hours saved vs the model and patients home, a scrubber and *Replay*.
-  `http://localhost:4600/?attract=1` loops the replay for passers-by.
-- **Rail.** Open items per service and the live wire trace.
+- **Right rail.** Open items per service and the live wire trace.
+- **Receipt.** Each patient card downloads a consolidated Markdown discharge
+  coordination record (`GET /receipt?patient=…`).
+
+### The second screen: the whole ward (`scripts/flow-sim.ts`)
+
+For a second laptop at the stall. Its own throwaway world, running unattended for as
+long as you leave it: every tick advances the simulator clock, ingests the new A&E
+arrivals the simulator generates (about 6–8 per sim-hour, each a synthetic patient
+with a record), and moves every person one station along with real actions, assign
+and assess in A&E, home from A&E or refer to the take, admit when a ward bed is free,
+the discharge checklist through the same resolvers and verifiers as the ward-round
+demo, discharge when everything is verified.
+
+```bash
+npm run flow                              # new world, screen on http://localhost:4700
+npm run flow -- --step 30 --beds 12       # sim-minutes per tick, ward size (defaults)
+npm run flow -- --stay 60-240             # assumed treatment stay before fit, sim-minutes (default 60-180)
+npm run flow -- --llm                     # let the model draft the letters (slower)
+npm run flow -- --offline                 # no simulator: local stand-in with the verified timings, never stalls (use this at the stall if the sim is slow)
+npm run flow:replay                       # no simulator: show the last flow-state.json (add -- --port 4701 to run beside a live one)
+```
+
+The screen shows two journeys with the same arrivals: **With Homeward** (the live
+world) and **Today's ward** (the illustrative manual-working model in
+`src/story/baseline.ts`, same beds, so it fills and people queue). Counters: arrivals,
+beds occupied, waiting for a bed vs the model, home, median door-to-home, bed-hours
+saved vs the model. The page states what is real and what is assumed: nobody in the
+simulator gets better on their own, so treatment before "medically fit" is a seeded
+1–3 h stay; acuity 1–2 are admitted and 25% of acuity 3; the ward has 12 beds.
+Every tick is written to `flow-state.json` for `--replay`.
 
 ### Offline fallback
 
@@ -108,6 +133,7 @@ nobody is discharged with a hold or blocker open.
 discharge-orchestrator-brief.md   the brief: mission, verified API mechanics, checklist, milestones
 scripts/demo-discharge.ts         the demo runner (flags above)
 scripts/serve-fallback.ts         offline UI from a snapshot
+scripts/flow-sim.ts               the second screen: a whole ward running unattended
 scripts/quickstart.ts             handbook quickstart against a team world
 scripts/capture.ts                record read-only responses into fixtures/
 src/orchestrator/model.ts         ChecklistItem / PatientRow / BoardState, the meeting point of all workstreams
@@ -119,9 +145,11 @@ src/orchestrator/run.ts           detect → resolve → advance → verify loop
 src/orchestrator/world.ts         world join, admission stage machine, discharge
 src/story/baseline.ts             the illustrative manual-ward model (stated parameters, seeded RNG)
 src/story/story.ts                two-lane timelines + counters derived from the board
-src/ui/server.ts                  the page + tiny HTTP API
+src/flow/engine.ts                the whole-ward flow simulation (ingest arrivals, move people, model lane)
+src/flow/ui.ts                    the second screen
+src/ui/server.ts                  the ward-round page + tiny HTTP API
 src/sim/                          the simulator client (below)
-test/                             unit, UI, story and invariant tests
+test/                             unit, UI, baseline-model and invariant tests
 ```
 
 ## The simulator client (`src/sim/`)

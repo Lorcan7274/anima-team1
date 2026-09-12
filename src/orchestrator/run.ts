@@ -43,7 +43,8 @@ export async function detectAll(ctx: OrchestratorContext): Promise<void> {
   }
 }
 
-async function resolveItem(ctx: OrchestratorContext, item: ChecklistItem): Promise<void> {
+/** Act on one approved item in the owning service (exported for the flow simulation driver). */
+export async function resolveItem(ctx: OrchestratorContext, item: ChecklistItem): Promise<void> {
   const resolver = resolverFor(item)
   if (!resolver) return // clinical_hold / blocked_human / unknown: nothing to do
   item.state = 'resolving'
@@ -59,7 +60,8 @@ async function resolveItem(ctx: OrchestratorContext, item: ChecklistItem): Promi
   }
 }
 
-async function verifyItem(ctx: OrchestratorContext, item: ChecklistItem): Promise<void> {
+/** Re-read the resolver-created resource for one item (exported for the flow simulation driver). */
+export async function verifyItem(ctx: OrchestratorContext, item: ChecklistItem): Promise<void> {
   const verifier = verifierFor(item)
   if (!verifier || !item.resolution) return
   const v = await verifier(ctx, item)
