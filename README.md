@@ -64,3 +64,14 @@ npm run typecheck # needs `npm install` first for typescript
 ## Still to verify against the live API
 
 The response types in `src/sim/types.ts` are loose on purpose. Only the quickstart shapes are confirmed. Download `/api/openapi.json` with a working key and tighten the types for the action bodies, the clock change body, and the workspace responses.
+
+## Capture live responses
+
+With `SIM_KEY` set, this records read-only responses and the OpenAPI document into `fixtures/`:
+
+```bash
+node scripts/capture.ts
+git add fixtures && git commit -m "Capture simulator fixtures" && git push
+```
+
+Keys and tokens are redacted before writing. The fixtures are the basis for tightening the types.
