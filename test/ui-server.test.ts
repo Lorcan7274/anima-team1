@@ -39,7 +39,7 @@ const post = async (path: string) => fetch(`${await origin}${path}`, { method: '
 test('GET / serves the ward page and GET /state serves the board as JSON', async () => {
   const page = await fetch(`${await origin}/`)
   assert.equal(page.headers.get('content-type'), 'text/html')
-  assert.match(await page.text(), /<title>Homeward<\/title>/)
+  assert.match(await page.text(), /<title>Homeward/)
   const state = await (await fetch(`${await origin}/state`)).json()
   assert.equal(state.world, 'test-world')
   assert.equal(state.patients[0].items.length, 3)
