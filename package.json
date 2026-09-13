@@ -3,20 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Homeward: discharge-readiness orchestrator on the NHS-SIM synthetic healthcare simulator",
+  "description": "Homeward: discharge-readiness orchestrator on the NHS-SIM synthetic healthcare simulator, with a local stand-in for the simulator so the demo runs without a server",
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
     "demo": "node scripts/demo-discharge.ts",
     "demo:detect": "node scripts/demo-discharge.ts --detect-only",
+    "demo:live": "node scripts/demo-discharge.ts --live",
+    "sim:local": "node scripts/local-sim.ts",
     "fallback": "node scripts/serve-fallback.ts",
     "flow": "node scripts/flow-sim.ts",
+    "flow:live": "node scripts/flow-sim.ts --live",
     "flow:replay": "node scripts/flow-sim.ts --replay",
     "quickstart": "node scripts/quickstart.ts",
     "test": "node --test \"test/**/*.test.ts\"",
-    "evals": "node --test test/invariants.test.ts test/story.test.ts test/flow.test.ts",
-    "typecheck": "tsc --noEmit"
+    "evals": "node --test test/invariants.test.ts test/story.test.ts test/flow.test.ts test/local-sim.test.ts",
+    "typecheck": "tsc --noEmit",
+    "ui:smoke": "node scripts/ui-smoke.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
