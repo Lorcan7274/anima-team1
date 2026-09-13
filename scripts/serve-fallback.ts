@@ -14,5 +14,7 @@ import { startUi } from '../src/ui/server.ts'
 
 const path = process.argv[2] ?? 'fallback-board.json'
 const board = JSON.parse(readFileSync(path, 'utf8')) as BoardState
+board.mode = 'snapshot'
+board.busy = false
 board.log.push(`(fallback mode, serving snapshot from ${path}, simulator not connected)`)
 startUi(board)

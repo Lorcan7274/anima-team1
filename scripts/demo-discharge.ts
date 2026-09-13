@@ -1,12 +1,23 @@
 /**
  * Demo runner for Homeward, the discharge coordination agent.
  *
- *   node scripts/demo-discharge.ts                     # new random world, full run
+ *   node scripts/demo-discharge.ts                     # local stand-in started in-process, full run, UI on :4600
+ *   node scripts/demo-discharge.ts --live              # the shared NHS-SIM world (SIM_ORIGIN / .env), new random world
  *   node scripts/demo-discharge.ts --world <name>      # specific world (join code!)
  *   node scripts/demo-discharge.ts --detect-only       # read-only checklist
  *   node scripts/demo-discharge.ts --no-ui             # skip the ward-list server
  *   node scripts/demo-discharge.ts --approve           # auto-approve the plan (headless)
  *   node scripts/demo-discharge.ts --ward              # also track the two seeded inpatients (SIM-000007/8)
+ *   node scripts/demo-discharge.ts --sim-port 4680     # port for the in-process stand-in (default: any free port)
+ *
+ * By default the run talks to the local simulator stand-in (src/sim/local),
+ * started inside this process over real HTTP, so the client, the wire trace
+ * and every request shape are the ones the shared simulator sees; the UI
+ * says which simulator the run used. An embedded world dies with the
+ * process, so re-runs start fresh; for a world that persists across runs,
+ * start `node scripts/local-sim.ts` and run this with
+ * `SIM_ORIGIN=http://127.0.0.1:4680 --live --world <name>`, where the usual
+ * re-run semantics (snapshot restore, saved key) hold.
  *
  * With the UI up and no --approve, the runner WAITS for the "Approve plan"
  * click, that is the staff-approval demo beat. Board snapshots are written to
@@ -14,7 +25,9 @@
  * Stage demo: run with a brand-new unguessable world minutes before demoing.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { connectWorld, joinWorld, randomWorldName, admitToWard, dischargeAttendance } from '../src/orchestrator/world.ts'
+import { connectWorld, joinWorld, randomWorldName, admitToWard, dischargeAttendance, simOrigin } from '../src/orchestrator/world.ts'
+import { startLocalSim } from '../src/sim/local/server.ts'
+import type { SimClient } from '../src/sim/index.ts'
 import { approveAll, buildBoard, clearHold, detectAll, pendingWork, runUntilSettled, readyForDischarge, newRunId } from '../src/orchestrator/run.ts'
 import { refreshStage } from '../src/orchestrator/detect.ts'
 import type { OrchestratorContext } from '../src/orchestrator/model.ts'
@@ -33,12 +46,18 @@ const ELEANOR = 'SIM-000006'
 const WARD_EXTRAS = ['SIM-000007', 'SIM-000008']
 
 const worldName = arg('world') ?? randomWorldName()
+const live = flag('live')
 console.log(`world: ${worldName}`)
 
 // Serve the UI immediately with an empty board, it fills in live as setup
 // and detection progress, so the browser never sees a connection refused.
-const board: import('../src/orchestrator/model.ts').BoardState = { world: worldName, runId: newRunId(), simNow: 0, patients: [], log: [], trace: [], phase: 'Joining the simulator world', busy: true }
-if (!flag('no-ui')) startUi(board, 4600, () => { try { return sim } catch { return undefined } })
+const board: import('../src/orchestrator/model.ts').BoardState = {
+  world: worldName, runId: newRunId(), simNow: 0, patients: [], log: [], trace: [], busy: true,
+  phase: live ? 'Joining the simulator world' : 'Starting the local simulator stand-in',
+  mode: live ? 'live' : 'local',
+}
+let simRef: SimClient | undefined
+if (!flag('no-ui')) startUi(board, 4600, () => simRef)
 
 // Every simulator request lands in the board's trace, the compliance record,
 // annotated with the plain-language headline and outcome the UI shows.
@@ -46,24 +65,55 @@ const traceHook = (entry: import('../src/sim/http.ts').TraceEntry) => {
   board.trace!.push(annotate(entry))
   if (board.trace!.length > 1000) board.trace!.shift()
 }
-// /api/keys is the sim's most fragile endpoint. Avoid it whenever a key is
-// already known: the --key flag, or the key saved in this world's snapshot.
-let savedKey: string | undefined
-if (existsSync('fallback-board.json')) {
+
+/** The last snapshot, only when it is for this world AND the simulator this run talks to. */
+const snapshotFor = (world: string, origin: string): any | undefined => {
+  if (!existsSync('fallback-board.json')) return undefined
   try {
     const snap = JSON.parse(readFileSync('fallback-board.json', 'utf8'))
-    if (snap.world === worldName && snap.apiKey) savedKey = snap.apiKey
+    if (snap.world === world && (!snap.simOrigin || snap.simOrigin === origin)) return snap
   } catch { /* unreadable snapshot */ }
+  return undefined
 }
-const directKey = arg('key') ?? savedKey
-const { sim, world } = directKey
-  ? connectWorld(worldName, directKey, traceHook)
-  : await joinWorld(worldName, traceHook, 20, (attempt, err) => {
-      board.phase = `Joining the simulator world: reconnecting, attempt ${attempt + 1} of 20 (the world is still being seeded)`
-      if (attempt === 1) board.log.push(`/api/keys is slow; reconnecting every few seconds until the world is ready`)
-      console.log(`  /api/keys not ready (attempt ${attempt}); reconnecting: ${String((err as Error).message).slice(0, 80)}`)
-    })
-if (directKey) console.log('connected with known key, /api/keys skipped')
+
+/** The shared NHS-SIM world (or any simulator at SIM_ORIGIN, e.g. a standalone scripts/local-sim.ts). */
+async function joinLive(): Promise<{ sim: SimClient; world: string }> {
+  board.simOrigin = simOrigin()
+  console.log(`simulator: ${board.simOrigin} (--live)`)
+  // /api/keys is the sim's most fragile endpoint. Avoid it whenever a key is
+  // already known: the --key flag, or the key saved in this world's snapshot.
+  const savedKey: string | undefined = snapshotFor(worldName, board.simOrigin)?.apiKey
+  const directKey = arg('key') ?? savedKey
+  const joined = directKey
+    ? connectWorld(worldName, directKey, traceHook, { origin: board.simOrigin })
+    : await joinWorld(worldName, traceHook, 20, (attempt, err) => {
+        board.phase = `Joining the simulator world: reconnecting, attempt ${attempt + 1} of 20 (the world is still being seeded)`
+        if (attempt === 1) board.log.push(`/api/keys is slow; reconnecting every few seconds until the world is ready`)
+        console.log(`  /api/keys not ready (attempt ${attempt}); reconnecting: ${String((err as Error).message).slice(0, 80)}`)
+      }, { origin: board.simOrigin })
+  if (directKey) console.log('connected with known key, /api/keys skipped')
+  return joined
+}
+
+/**
+ * The local stand-in, started in this process on the loopback interface. The
+ * SimClient talks to it over HTTP exactly as it would to the shared world.
+ */
+let local: Awaited<ReturnType<typeof startLocalSim>> | undefined
+async function joinLocal(): Promise<{ sim: SimClient; world: string }> {
+  local = await startLocalSim({ port: Number(arg('sim-port') ?? 0), host: '127.0.0.1' })
+  board.simOrigin = local.origin
+  console.log(`simulator: local stand-in at ${local.origin}, started in this process (the shared NHS-SIM is not contacted; add --live for it)`)
+  board.log.push(`local simulator stand-in started at ${local.origin}: this run uses a seeded local world, not the shared NHS-SIM`)
+  if (arg('key') || existsSync('fallback-board.json')) {
+    board.log.push('embedded local world is fresh for this process: snapshot restore and saved-key reuse skipped (for a persistent world run scripts/local-sim.ts and use --live with SIM_ORIGIN)')
+    console.log('  embedded world is fresh: snapshot restore and saved-key reuse skipped (run scripts/local-sim.ts + --live --world <name> for a persistent world)')
+  }
+  return joinWorld(worldName, traceHook, 3, undefined, { origin: local.origin })
+}
+
+const { sim, world } = live ? await joinLive() : await joinLocal()
+simRef = sim
 ;(board as { apiKey?: string }).apiKey = (sim as { apiKey?: string }).apiKey
 const phase = (text: string, busy = true) => { board.phase = text; board.busy = busy }
 // Surface fatal errors on the page instead of leaving a dead tab.
@@ -119,11 +169,12 @@ board.simNow = built.simNow
 board.fitAt = built.simNow
 
 // Safe re-run: restore item state from the last snapshot when it is the SAME
-// world. Settled items stay settled, so nothing is re-resolved or duplicated.
-if (existsSync('fallback-board.json')) {
+// world on the SAME simulator. Settled items stay settled, so nothing is
+// re-resolved or duplicated. An embedded local world cannot be the same one.
+if (live) {
   try {
-    const snap = JSON.parse(readFileSync('fallback-board.json', 'utf8'))
-    if (snap.world === world) {
+    const snap = snapshotFor(world, board.simOrigin ?? '')
+    if (snap) {
       let retried = 0
       for (const sp of snap.patients ?? []) {
         const row = board.patients.find((p) => p.patientId === sp.patientId)
@@ -151,7 +202,7 @@ const ctx: OrchestratorContext = {
   },
 }
 phase('Reading the records, the model is detecting barriers')
-await detectAll(ctx)
+await withRetry('Detecting barriers', () => detectAll(ctx))
 phase('Detection complete', false)
 
 console.log('\n=== checklist ===')
@@ -222,6 +273,13 @@ if (flag('detect-only')) {
   }
   phase('Run complete', false)
   snapshot()
-  console.log('\nProof in the sim’s own apps: hospital discharged list, GP inbox, community board, home dashboard.')
+  if (live) console.log('\nProof in the sim’s own apps: hospital discharged list, GP inbox, community board, home dashboard.')
+  else console.log(`\nProof by API against the local stand-in (${board.simOrigin}): every read in the wire trace is a real HTTP request to it.`)
   console.log('Note: clinical holds require clicking "Confirm reviewed" in the UI, then re-run against the SAME world.')
+}
+
+// Headless and no UI: nothing keeps the process alive but the embedded stand-in, so stop it.
+if (local && flag('no-ui')) {
+  await local.close()
+  console.log('local simulator stand-in stopped (embedded world discarded)')
 }
