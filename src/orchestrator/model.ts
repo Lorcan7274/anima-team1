@@ -157,6 +157,15 @@ export interface BoardState {
   busy?: boolean
   /** Every simulator request this run made, the compliance record. */
   trace?: TraceEntry[]
+  /**
+   * Which simulator the run talked to: the shared NHS-SIM world ('live'), the
+   * local stand-in the demo starts when the shared one is unreachable
+   * ('local'), the flow screen's in-process stand-in ('offline'), or a saved
+   * board served with no simulator at all ('snapshot'). The UI must say which.
+   */
+  mode?: 'live' | 'local' | 'offline' | 'snapshot'
+  /** Origin the simulator requests were sent to, so a stand-in is never mistaken for the shared world. */
+  simOrigin?: string
 }
 
 export interface OrchestratorContext {

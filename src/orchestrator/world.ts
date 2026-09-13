@@ -7,11 +7,20 @@
  */
 import { randomBytes } from 'node:crypto'
 import { SimClient } from '../sim/index.ts'
-import { loadDotEnv } from '../sim/config.ts'
+import { loadConfig, loadDotEnv } from '../sim/config.ts'
 import type { TraceEntry } from '../sim/http.ts'
 
 loadDotEnv()
-const ORIGIN = process.env.SIM_ORIGIN?.replace(/\/+$/, '') || 'https://sim.animahealth.com'
+
+/**
+ * Where simulator requests go. An explicit origin wins (the demo runner passes
+ * the local stand-in it started); otherwise SIM_ORIGIN from .env, read when
+ * called rather than at import time; otherwise the shared simulator
+ * (the same default as src/sim/config.ts, so there is one place to change it).
+ */
+export function simOrigin(origin?: string): string {
+  return origin ? origin.replace(/\/+$/, '') : loadConfig().origin
+}
 
 export function randomWorldName(): string {
   // Team names are JOIN CODES, anyone who guesses one can enter the world.
@@ -23,8 +32,9 @@ export function connectWorld(
   worldName: string,
   apiKey: string,
   trace?: (entry: TraceEntry) => void,
+  opts: { origin?: string } = {},
 ): { sim: SimClient; world: string } {
-  return { sim: new SimClient({ origin: ORIGIN, apiKey, trace }), world: worldName }
+  return { sim: new SimClient({ origin: simOrigin(opts.origin), apiKey, trace }), world: worldName }
 }
 
 export async function joinWorld(
@@ -32,8 +42,9 @@ export async function joinWorld(
   trace?: (entry: TraceEntry) => void,
   attempts = 20,
   onRetry?: (attempt: number, err: unknown) => void,
+  opts: { origin?: string } = {},
 ): Promise<{ sim: SimClient; world: string }> {
-  const bootstrap = new SimClient({ origin: ORIGIN, trace })
+  const bootstrap = new SimClient({ origin: simOrigin(opts.origin), trace })
   // /api/keys is the simulator's slowest endpoint: a fresh world is seeded on
   // this call, and the seeding carries on server-side after we give up.
   // Measured: 10 s attempts every 2 s got the key on the fourth try, 43 s in.
