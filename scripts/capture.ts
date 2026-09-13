@@ -18,6 +18,23 @@ if (!client.apiKey) {
   process.exit(1)
 }
 console.log(`Using ${client.http.origin} with key ending ...${client.apiKey.slice(-4)}`)
+
+/** A dead or unreachable simulator: reported once and the run ends, instead of two dozen 45 s timeouts. */
+function unreachable(error: unknown): string | undefined {
+  if (error instanceof SimApiError) return error.status === 0 ? error.message : undefined
+  const message = String((error as Error)?.message ?? error)
+  return /fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|network|socket|abort/i.test(message) ? `${message} (${client.http.origin} unreachable)` : undefined
+}
+
+// Fail fast: one short probe before any capture.
+try {
+  await client.http.get('/healthz', undefined, { token: null, timeoutMs: 10_000 })
+} catch (error) {
+  console.error(`The simulator at ${client.http.origin} is not answering: ${unreachable(error) ?? String((error as Error)?.message ?? error)}`)
+  console.error('Check SIM_ORIGIN and try again; nothing was written.')
+  process.exit(1)
+}
+
 const outDir = join(import.meta.dirname, '..', 'fixtures')
 await mkdir(outDir, { recursive: true })
 
@@ -55,6 +72,12 @@ for (const [name, run] of captures) {
     await writeFile(join(outDir, `${name}.json`), JSON.stringify(redact(data), null, 2) + '\n')
     summary[name] = 'ok'
   } catch (error) {
+    const dead = unreachable(error)
+    if (dead) {
+      console.error(`${'aborted'.padEnd(12)} ${name}: ${dead}`)
+      console.error(`The simulator stopped answering; ${Object.keys(summary).length} capture(s) written before that. Re-run when it is back.`)
+      process.exit(1)
+    }
     if (error instanceof SimApiError) {
       await writeFile(
         join(outDir, `${name}.error.json`),

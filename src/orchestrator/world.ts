@@ -104,8 +104,11 @@ export async function admitToWard(sim: SimClient, patientId: string, location: s
     if (!att) throw new Error(`no attendance for ${patientId}`)
     const stage = att.data?.stage ?? 'waiting'
     if (ORDER.indexOf(stage) >= ORDER.indexOf('inpatient')) return
-    // 'assign' does not change the stage (still waiting), detect by clinician set.
-    const step = stage === 'waiting' && (att.data as any)?.clinician !== 'Unassigned' ? NEXT['assigned'] : NEXT[stage]
+    // 'assign' does not change the stage (still waiting), detect by a named
+    // clinician. A missing or blank field is unassigned, like 'Unassigned'.
+    const clinician = (att.data as any)?.clinician
+    const assigned = typeof clinician === 'string' && clinician.trim() !== '' && clinician !== 'Unassigned'
+    const step = stage === 'waiting' && assigned ? NEXT['assigned'] : NEXT[stage]
     if (!step) throw new Error(`no next step from stage ${stage}`)
     await stageStep(sim, patientId, att, step[0], step[1], `setup-${patientId}`)
   }

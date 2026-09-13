@@ -42,11 +42,33 @@ if (!client.apiKey && !values['create-team']) {
 }
 console.log(`Using ${client.http.origin} with key ending ...${client.apiKey?.slice(-4) ?? 'none'}`)
 
+/** A dead or unreachable simulator is reported in one line and ends the run: no silent 45 s hang per call. */
+function unreachable(error: unknown): string | undefined {
+  if (error instanceof SimApiError) return error.status === 0 ? error.message : undefined
+  const message = String((error as Error)?.message ?? error)
+  return /fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|network|socket|abort/i.test(message) ? `${message} (${client.http.origin} unreachable)` : undefined
+}
+
+// Fail fast: one short probe before any real call.
+try {
+  await client.http.get('/healthz', undefined, { token: null, timeoutMs: 10_000 })
+} catch (error) {
+  console.error(`The simulator at ${client.http.origin} is not answering: ${unreachable(error) ?? String((error as Error)?.message ?? error)}`)
+  console.error('Check SIM_ORIGIN (or --origin) and try again; nothing was sent.')
+  process.exit(1)
+}
+
 if (values['create-team']) {
-  const created = await client.createTeam(values['create-team'])
-  console.log(`Team key for "${values['create-team']}": ${created.apiKey}`)
-  console.log('Export it as SIM_KEY to reuse it.')
-  client = client.withKey(created.apiKey)
+  try {
+    const created = await client.createTeam(values['create-team'])
+    console.log(`Team key for "${values['create-team']}": ${created.apiKey}`)
+    console.log('Export it as SIM_KEY to reuse it.')
+    client = client.withKey(created.apiKey)
+  } catch (error) {
+    console.error(`Could not create or join team "${values['create-team']}": ${unreachable(error) ?? (error instanceof SimApiError ? error.message : String((error as Error)?.message ?? error))}`)
+    if (error instanceof SimApiError && error.status !== 0) console.error(JSON.stringify(error.body, null, 2))
+    process.exit(1)
+  }
 }
 
 try {
@@ -63,6 +85,11 @@ try {
   console.log(`Tasks titled "${values.title}" in GP view: ${matching.length}`)
   console.log(JSON.stringify(matching, null, 2))
 } catch (error) {
+  const dead = unreachable(error)
+  if (dead) {
+    console.error(`The simulator stopped answering: ${dead}`)
+    process.exit(1)
+  }
   if (error instanceof SimApiError) {
     console.error(error.message)
     console.error(JSON.stringify(error.body, null, 2))

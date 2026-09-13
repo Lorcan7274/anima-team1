@@ -5,7 +5,7 @@
  * Re-run safety comes from state, not idempotency keys: settled items are
  * never re-resolved, and detection merges into existing board state.
  */
-import type { BoardState, ChecklistItem, OrchestratorContext, PatientRow } from './model.ts'
+import type { BoardState, ChecklistItem, OrchestratorContext, PatientRow, Verification } from './model.ts'
 import { isSettled } from './model.ts'
 import { detectForPatient, loadPatientRow } from './detect.ts'
 import { planFor, resolverFor } from './resolve.ts'
@@ -46,7 +46,17 @@ export async function detectAll(ctx: OrchestratorContext): Promise<void> {
 /** Act on one approved item in the owning service (exported for the flow simulation driver). */
 export async function resolveItem(ctx: OrchestratorContext, item: ChecklistItem): Promise<void> {
   const resolver = resolverFor(item)
-  if (!resolver) return // clinical_hold / blocked_human / unknown: nothing to do
+  if (!resolver) {
+    // clinical_hold / blocked_human: nothing to do. An APPROVED item with no
+    // resolver can never progress and would keep the demo loop spinning on
+    // pendingWork().approved, so it is failed with the reason instead.
+    if (item.state === 'approved') {
+      item.state = 'failed'
+      item.error = `no resolver for item type "${item.id.split('-').slice(2).join('-') || item.id}"`
+      ctx.log(`FAILED ${item.id}: ${item.error}`)
+    }
+    return
+  }
   item.state = 'resolving'
   item.attempts = (item.attempts ?? 0) + 1
   try {
@@ -64,7 +74,18 @@ export async function resolveItem(ctx: OrchestratorContext, item: ChecklistItem)
 export async function verifyItem(ctx: OrchestratorContext, item: ChecklistItem): Promise<void> {
   const verifier = verifierFor(item)
   if (!verifier || !item.resolution) return
-  const v = await verifier(ctx, item)
+  let v: Verification
+  try {
+    v = await verifier(ctx, item)
+  } catch (err) {
+    // A read that fails (simulator hung, 5xx) proves nothing either way: the
+    // resolver's work stands, the item stays awaiting and is re-read next
+    // round. It must not abort the whole run.
+    const reason = String((err as Error).message ?? err).slice(0, 160)
+    item.verification = { passed: false, observed: `verification read failed: ${reason}`, atSimTime: ctx.board.simNow }
+    ctx.log(`verify error ${item.id} (will re-read next round): ${reason}`)
+    return
+  }
   item.verification = v
   if (v.passed) {
     item.state = 'verified'
@@ -84,25 +105,49 @@ export interface RunOptions {
 export async function runUntilSettled(ctx: OrchestratorContext, opts: RunOptions = {}): Promise<void> {
   const advance = opts.advanceMinutes ?? 121
   const maxRounds = opts.maxRounds ?? 3
-  for (let round = 1; round <= maxRounds; round++) {
-    const open = ctx.board.patients.flatMap((p) => p.items).filter((i) => !isSettled(i) && i.state !== 'failed')
-    if (open.length === 0) return
-    if (open.every((i) => i.state === 'proposed')) {
-      ctx.log('all open items await staff approval, not acting')
-      return
+  const openItems = () => ctx.board.patients.flatMap((p) => p.items).filter((i) => !isSettled(i) && i.state !== 'failed')
+  // Rounds run one after another in this process, so an item found 'resolving'
+  // when a round starts was left by a run that was interrupted mid-action
+  // (restored from a snapshot). It is retried as a fresh attempt, with fresh
+  // idempotency keys; the resolvers resume chains that partly completed.
+  for (const item of openItems()) {
+    if (item.state === 'resolving') {
+      item.state = 'approved'
+      ctx.log(`${item.id} was left resolving by an interrupted run, retrying`)
     }
-    ctx.log(`--- round ${round}: ${open.length} open item(s) ---`)
-    ctx.board.phase = 'Executing approved actions in the simulator'
-    ctx.board.busy = true
-    for (const item of open.filter((i) => i.state === 'approved')) await resolveItem(ctx, item)
-    ctx.log(`advancing clock ${advance} sim-minutes`)
-    ctx.board.phase = `Advancing the sim clock ${advance} minutes`
-    await ctx.sim.advanceClock(advance)
-    ctx.board.simNow = Number((await ctx.sim.clock()).now)
-    ctx.board.phase = 'Re-reading every service to verify outcomes'
-    for (const item of open.filter((i) => i.state === 'awaiting_verification')) await verifyItem(ctx, item)
   }
-  ctx.board.busy = false
+  try {
+    for (let round = 1; round <= maxRounds; round++) {
+      const open = openItems()
+      if (open.length === 0) return
+      if (open.every((i) => i.state === 'proposed')) {
+        ctx.log('all open items await staff approval, not acting')
+        return
+      }
+      ctx.log(`--- round ${round}: ${open.length} open item(s) ---`)
+      ctx.board.phase = 'Executing approved actions in the simulator'
+      ctx.board.busy = true
+      for (const item of open.filter((i) => i.state === 'approved')) await resolveItem(ctx, item)
+      ctx.log(`advancing clock ${advance} sim-minutes`)
+      ctx.board.phase = `Advancing the sim clock ${advance} minutes`
+      await ctx.sim.advanceClock(advance)
+      ctx.board.simNow = Number((await ctx.sim.clock()).now)
+      ctx.board.phase = 'Re-reading every service to verify outcomes'
+      for (const item of open.filter((i) => i.state === 'awaiting_verification')) await verifyItem(ctx, item)
+    }
+    // Out of rounds: whatever is still unverified stays awaiting_verification
+    // (never falsely green) and the log says so, for the UI and the audit trail.
+    const unverified = openItems().filter((i) => i.state === 'awaiting_verification')
+    if (unverified.length) {
+      const names = unverified.map((i) => i.id).join(', ')
+      ctx.log(`round cap (${maxRounds}) reached with ${unverified.length} item(s) still awaiting verification: ${names}`)
+      ctx.board.phase = `Out of rounds: ${unverified.length} item(s) still awaiting verification`
+    }
+  } finally {
+    // Every exit, early or not, leaves the board reporting the truth: the
+    // runner is no longer calling the simulator.
+    ctx.board.busy = false
+  }
 }
 
 /**

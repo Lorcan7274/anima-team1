@@ -5,9 +5,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-delete process.env.OPENAI_API_KEY
+process.env.OPENAI_API_KEY = '' // canned drafts only; set rather than deleted so a later loadDotEnv() cannot restore a developer's key
 import type { BoardState, ChecklistItem, OrchestratorContext } from '../src/orchestrator/model.ts'
-import { planFor, resolverFor } from '../src/orchestrator/resolve.ts'
+import { findFreeTelephoneSlot, planFor, resolverFor } from '../src/orchestrator/resolve.ts'
 import { fakeSim, FIT } from './helpers/fake-sim.ts'
 import type { SimClient } from '../src/sim/index.ts'
 
@@ -188,4 +188,99 @@ test('bloods: the clinical details cite the patient\'s own conditions, not a tem
   const details: string = f.writes[0].body.bloodTestOrder.clinicalDetails
   assert.match(details, /Frailty/)
   assert.doesNotMatch(details, /CKD|diuretic|heart failure/i)
+})
+
+// --- Medicines: the chain acts on the cited prescription, never on history ----
+
+test('medicines: an old collected prescription in the pharmacy view does not short-circuit the chain for the cited approved one', async () => {
+  const old = { id: 'r-old', kind: 'prescription', patientId: 'SIM-000001', status: 'collected', version: 9, createdAt: FIT - 40 * 86_400_000, data: { drug: 'Furosemide tablets' } }
+  const f = fakeSim({ views: { pharmacy: [old, ...pharmacy()] } })
+  const it = item('medicines', { evidence: [{ resourceId: 'r-3', site: 'hospital', quote: 'Discharge medication supply: status approved, not dispensed or collected' }] })
+  const res = await resolverFor(it)!(ctxFor(f.sim, [it]), it)
+  assert.deepEqual(f.writes.map((w) => w.body.type), ['link_prescription_stock', 'dispense', 'collect'], 'the full chain runs on r-3')
+  assert.ok(f.writes.every((w) => w.body.resourceId === 'r-3'))
+  assert.equal(res.resourceId, 'r-3', 'the verifier will read r-3, not the historical r-old')
+  assert.doesNotMatch(res.action, /already collected/)
+})
+
+test('medicines: resume still works on the cited prescription when an earlier attempt got it to dispensed', async () => {
+  const other = { id: 'r-other', kind: 'prescription', patientId: 'SIM-000001', status: 'approved', version: 1, data: { drug: 'Paracetamol' } }
+  const f = fakeSim({ views: { pharmacy: [other, ...pharmacy('dispensed')] } })
+  const it = item('medicines', { evidence: [{ resourceId: 'r-3', site: 'hospital', quote: 'Discharge medication supply: status approved' }] })
+  const res = await resolverFor(it)!(ctxFor(f.sim, [it]), it)
+  assert.deepEqual(f.writes.map((w) => `${w.body.type}:${w.body.resourceId}`), ['collect:r-3'])
+  assert.equal(res.resourceId, 'r-3')
+  assert.match(res.action, /resumed/)
+})
+
+test('medicines: a cited prescription that is not approved is refused with its real status, and nothing else is touched', async () => {
+  const f = fakeSim({ views: { pharmacy: pharmacy('draft') } })
+  const it = item('medicines', { evidence: [{ resourceId: 'r-3', site: 'hospital', quote: 'Discharge medication supply: status draft' }] })
+  await assert.rejects(resolverFor(it)!(ctxFor(f.sim, [it]), it), /r-3.*draft/)
+  assert.equal(f.writes.length, 0)
+})
+
+test('findFreeTelephoneSlot never loops forever on a session with a zero or missing slot length', () => {
+  const session = telephoneSession({ slotMinutes: 0 })
+  const slot = findFreeTelephoneSlot({ appointments: [], sessions: [session] }, tomorrow)
+  assert.ok(slot, 'a slot is still found')
+  assert.equal(slot!.startsAt, tomorrow + 8 * 3_600_000 + 15 * 60_000, '08:00 is blocked; a sane default step of 15 minutes applies')
+  const open = telephoneSession({ startsAt: undefined, endsAt: undefined })
+  assert.equal(findFreeTelephoneSlot({ appointments: [], sessions: [open] }, tomorrow), undefined, 'a session with no times cannot be booked into')
+})
+
+// --- Summary: only the cited hospital document is shared; the letter states real arrangements ---
+
+test('summary: shares only the hospital documents the item cites, never the summary it just saved nor uncited letters', async () => {
+  const f = fakeSim({
+    views: {
+      hospital: [
+        { id: 'r-1', kind: 'document', patientId: 'SIM-000001', title: 'Admission note', version: 1, visibleTo: ['hospital'], data: { text: 'Blood monitoring requested; home equipment and medication handover not confirmed.' } },
+        { id: 'r-9', kind: 'document', patientId: 'SIM-000001', title: 'Psychiatry liaison letter', version: 1, visibleTo: ['hospital'], data: { text: 'Confidential.' } },
+      ],
+      diagnostics: [],
+    },
+  })
+  const it = item('summary', { evidence: [{ resourceId: 'r-1', site: 'hospital', quote: 'home equipment and medication handover not confirmed' }] })
+  const res = await resolverFor(it)!(ctxFor(f.sim, [it]), it)
+  const shares = f.writes.filter((w) => w.body.type === 'share_record')
+  assert.deepEqual(shares.map((w) => w.body.resourceId), ['r-1'], 'the cited admission note only')
+  assert.deepEqual(res.alsoResourceIds, ['r-1'])
+  assert.ok(!shares.some((w) => w.body.resourceId === res.resourceId), 'the summary reaches the GP through send, never share_record (the sim answers 409)')
+  assert.ok(!f.writes.some((w) => w.body.resourceId === 'r-9'))
+})
+
+test('summary: with no cited document nothing is shared and the resolution says so', async () => {
+  const f = fakeSim({ views: { hospital: [{ id: 'r-9', kind: 'document', patientId: 'SIM-000001', version: 1, visibleTo: ['hospital'] }], diagnostics: [] } })
+  const it = item('summary')
+  const res = await resolverFor(it)!(ctxFor(f.sim, [it]), it)
+  assert.deepEqual(f.writes.map((w) => w.body.type), ['save_discharge_summary', 'process_document'])
+  assert.equal(res.alsoResourceIds, undefined)
+  assert.equal(res.action, 'save_discharge_summary+send')
+})
+
+test('summary: the letter lists only arrangements the agent is actually making for this patient', async () => {
+  const f = fakeSim({ views: { hospital: [], diagnostics: [] } })
+  // Only a follow-up task is in the plan: no visit, no watch.
+  const summary = item('summary')
+  const followUp = item('follow-up')
+  await resolverFor(summary)!(ctxFor(f.sim, [summary, followUp]), summary)
+  const sections = f.writes[0].body.dischargeSections as Record<string, string>
+  assert.doesNotMatch(sections.followUp, /visit|watch/i, 'nothing claimed that is not on this patient\'s checklist')
+  assert.match(sections.followUp, /GP .*48/i)
+  for (const k of ['reason', 'course', 'diagnoses', 'medicationChanges', 'results', 'followUp', 'gpActions']) assert.ok(sections[k]?.trim(), `${k} is never empty`)
+  // Nothing else in the plan at all: the section still says something true.
+  const g = fakeSim({ views: { hospital: [], diagnostics: [] } })
+  const alone = item('summary')
+  await resolverFor(alone)!(ctxFor(g.sim, [alone]), alone)
+  const only = g.writes[0].body.dischargeSections as Record<string, string>
+  assert.ok(only.followUp.trim())
+  assert.doesNotMatch(only.followUp, /visit|watch|telephone review/i)
+  // A failed or unapproved item is not an arrangement.
+  const h = fakeSim({ views: { hospital: [], diagnostics: [] } })
+  const s3 = item('summary')
+  await resolverFor(s3)!(ctxFor(h.sim, [s3, item('visit', { state: 'failed' }), item('device', { state: 'proposed' }), item('follow-up', { state: 'verified' })]), s3)
+  const sec3 = h.writes[0].body.dischargeSections as Record<string, string>
+  assert.doesNotMatch(sec3.followUp, /visit|watch/i)
+  assert.match(sec3.followUp, /GP/)
 })

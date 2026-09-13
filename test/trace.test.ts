@@ -74,3 +74,30 @@ test('SimClient trace names the reason on a failed write', async () => {
   assert.equal(seen[0].error, 'Versioned prescription required')
   assert.equal(annotate(seen[0]).outcome, 'Failed (HTTP 400): Versioned prescription required')
 })
+
+test('every action the resolvers and world setup send reads as a past-tense sentence with a labelled outcome', () => {
+  assert.equal(headlineFor('gp', { type: 'cancel_appointment', resourceId: 'appt-old', expectedVersion: 2 }), 'Cancelled the appointment')
+  assert.equal(headlineFor('gp', { type: 'create_appointment_session', title: 'Post-discharge telephone reviews', mode: 'telephone' }), 'Opened a telephone appointment session')
+  assert.equal(headlineFor('gp', { type: 'book_appointment', title: 'Post-discharge telephone review', startsAt: 1 }), 'Booked an appointment: Post-discharge telephone review')
+  assert.equal(headlineFor('hospital', { type: 'share_record', target: 'community' }), 'Shared the record with community')
+  assert.equal(headlineFor('hospital', { type: 'register_attendance', title: 'Chest pain' }), 'Registered a hospital attendance: Chest pain')
+  for (const [cmd, expect] of [['assign', 'Assigned a clinician'], ['assess', 'Marked as being assessed'], ['refer', 'Referred to the take'], ['discharge', 'Discharged from hospital']] as const) {
+    assert.equal(headlineFor('hospital', { type: 'update_attendance', hospitalCommand: cmd }), expect)
+  }
+  assert.equal(headlineFor('hospital', { type: 'process_document', documentCommand: 'file' }), 'Filed the document')
+  assert.equal(outcomeFor({ type: 'book_appointment' }, { id: 'a-1', status: 'booked', version: 1, kind: 'appointment' }, true, 200), 'Appointment a-1 · now booked · v1')
+  assert.equal(outcomeFor({ type: 'create_appointment_session' }, { id: 's-1', status: 'open', version: 1, kind: 'appointment-session' }, true, 200), 'Appointment session s-1 · now open · v1')
+  assert.equal(outcomeFor({ type: 'cancel_appointment' }, { id: 'a-0', status: 'cancelled', version: 3 }, true, 200), 'Appointment a-0 · now cancelled · v3')
+  assert.equal(outcomeFor({ type: 'update_attendance' }, { id: 'att', status: 'inpatient', version: 5, kind: 'hospital-attendance' }, true, 200), 'Attendance att · now inpatient · v5')
+})
+
+test('failed requests: a timeout (status 0) and a 4xx with a non-JSON error page both get a readable outcome', () => {
+  const timeout = annotate(entry({ ok: false, status: 0, request: { type: 'collect' }, error: 'no response within 45000ms (simulator hung or unreachable)' }))
+  assert.equal(timeout.headline, 'Recorded the medicines as collected')
+  assert.equal(timeout.outcome, 'Failed: no response within 45000ms (simulator hung or unreachable)')
+  const html = annotate(entry({ ok: false, status: 502, request: { type: 'dispense' }, reply: '<html><body><h1>502 Bad Gateway</h1></body></html>', error: '<html><body><h1>502 Bad Gateway</h1></body></html>' }))
+  assert.equal(html.outcome, 'Failed (HTTP 502): 502 Bad Gateway')
+  const clock = annotate(entry({ path: '/api/clock', ok: false, status: 400, request: { advanceMinutes: 20000 }, reply: { error: 'advanceMinutes must be <= 10080' }, error: 'advanceMinutes must be <= 10080' }))
+  assert.equal(clock.headline, 'Moved the sim clock forward 20000 minutes')
+  assert.equal(clock.outcome, 'Failed (HTTP 400): advanceMinutes must be <= 10080')
+})

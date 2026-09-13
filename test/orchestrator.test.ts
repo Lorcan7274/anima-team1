@@ -95,3 +95,55 @@ test('joinWorld retries /api/keys when the simulator does not answer, and never 
     globalThis.fetch = realFetch
   }
 })
+
+test('without a model key every draft is a canned fallback with all seven sections non-empty and within the sim caps', async () => {
+  process.env.OPENAI_API_KEY = ''
+  const { completeSections, draftClinicalDetails, draftDischargeSummary, draftEscalation, proposeBarriersFromText } = await import('../src/orchestrator/llm.ts')
+  const { sections, source } = await draftDischargeSummary({ patientName: 'Test', conditions: [], documentTexts: [], bloodSummary: 'Latest U&E: none on record. Latest FBC: none on record.', planned: [] })
+  assert.equal(source, 'fallback')
+  for (const k of ['reason', 'course', 'diagnoses', 'medicationChanges', 'results', 'followUp', 'gpActions'] as const) {
+    assert.equal(typeof sections[k], 'string', k)
+    assert.ok(sections[k].trim().length > 0, `${k} must not be empty: the simulator rejects it`)
+    assert.ok(sections[k].length <= 10_000, `${k} within the dischargeSection cap`)
+  }
+  assert.doesNotMatch(sections.followUp, /visit|watch/i, 'nothing claimed that was not planned')
+  assert.deepEqual(completeSections({ reason: '  ', course: 'x'.repeat(20_000) }).reason, 'Not documented.')
+  assert.equal(completeSections({ course: 'x'.repeat(20_000) }).course.length, 10_000)
+  const long = await draftClinicalDetails('History: ' + 'neutrophils 2.0, '.repeat(300), ['CKD'])
+  assert.equal(long.source, 'fallback')
+  assert.ok(long.text.length <= 2000, 'clinicalDetails is capped at the simulator limit')
+  assert.ok(long.text.length > 0)
+  const barriers = await proposeBarriersFromText('unit', 'Blood monitoring requested.')
+  assert.deepEqual(barriers, { barriers: [], source: 'fallback' })
+  const esc = await draftEscalation({ patientName: 'Eleanor Chen', title: 'Care package awaiting funding decision', humanReason: 'External decision.', quotes: [] })
+  assert.equal(esc.source, 'fallback')
+  assert.ok(esc.escalation.responsibleTeam && esc.escalation.nextAction && esc.escalation.note)
+})
+
+test('admitToWard walks assign -> assess -> refer -> admit, treating a missing clinician field as unassigned', async () => {
+  const { admitToWard } = await import('../src/orchestrator/world.ts')
+  const { fakeSim } = await import('./helpers/fake-sim.ts')
+  const stageAfter: Record<string, string> = { assign: 'waiting', assess: 'assessing', refer: 'take', admit: 'inpatient' }
+  const run = async (attendance: Record<string, any>) => {
+    const f = fakeSim({
+      views: { hospital: [attendance] },
+      onAction: (w, r) => {
+        r.data.stage = stageAfter[w.body.hospitalCommand]
+        if (w.body.clinician) r.data.clinician = w.body.clinician
+        if (w.body.location) r.data.location = w.body.location
+      },
+    })
+    await admitToWard(f.sim, 'SIM-000010', 'AMU bed 4')
+    return f
+  }
+  const seeded = await run({ id: 'att-1', kind: 'hospital-attendance', patientId: 'SIM-000010', version: 1, data: { stage: 'waiting', clinician: 'Unassigned' } })
+  assert.deepEqual(seeded.writes.map((w) => w.body.hospitalCommand), ['assign', 'assess', 'refer', 'admit'])
+  assert.deepEqual(seeded.writes.map((w) => w.body.expectedVersion), [1, 2, 3, 4], 'each step re-reads the version')
+  assert.equal(seeded.writes[3].body.location, 'AMU bed 4')
+  const registered = await run({ id: 'att-2', kind: 'hospital-attendance', patientId: 'SIM-000010', version: 1, data: { stage: 'waiting' } })
+  assert.deepEqual(registered.writes.map((w) => w.body.hospitalCommand), ['assign', 'assess', 'refer', 'admit'], 'no clinician field means nobody is assigned yet')
+  const assigned = await run({ id: 'att-3', kind: 'hospital-attendance', patientId: 'SIM-000010', version: 2, data: { stage: 'waiting', clinician: 'Dr Ada Sim 0' } })
+  assert.deepEqual(assigned.writes.map((w) => w.body.hospitalCommand), ['assess', 'refer', 'admit'])
+  const done = await run({ id: 'att-4', kind: 'hospital-attendance', patientId: 'SIM-000010', version: 5, data: { stage: 'inpatient', clinician: 'Dr Ada Sim 0' } })
+  assert.equal(done.writes.length, 0, 'already on the ward: nothing sent')
+})

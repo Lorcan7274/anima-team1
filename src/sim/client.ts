@@ -193,9 +193,23 @@ export class SimClient {
     )
   }
 
-  /** Jump the world forward; advanceMinutes caps at 10080 (7 days) per call. Time never goes backwards. */
-  advanceClock(minutes: number, keep: { paused?: boolean; speed?: number } = { paused: true }) {
-    return this.changeClock({ ...keep, advanceMinutes: Math.min(minutes, 10080) })
+  /**
+   * Jump the world forward. The simulator caps advanceMinutes at 10080 (7 days)
+   * per call, so a larger jump is sent as several capped calls, each keeping
+   * the world paused, never silently truncated. Time never goes backwards.
+   * Returns the clock state after the last call.
+   */
+  async advanceClock(minutes: number, keep: { paused?: boolean; speed?: number } = { paused: true }) {
+    const CAP = 10_080
+    let left = Number.isFinite(minutes) && minutes > 0 ? minutes : 0
+    let state = await this.changeClock({ ...keep, advanceMinutes: Math.min(left, CAP) })
+    left -= Math.min(left, CAP)
+    while (left > 0) {
+      const step = Math.min(left, CAP)
+      state = await this.changeClock({ ...keep, advanceMinutes: step })
+      left -= step
+    }
+    return state
   }
 
   /** GET /api/sites/{site}/appointments: a day of appointments and sessions. */

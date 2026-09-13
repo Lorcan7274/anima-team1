@@ -24,6 +24,19 @@ interface SimResource {
 
 const res = (view: { resources?: unknown[] }): SimResource[] => (view.resources ?? []) as SimResource[]
 
+/**
+ * Out of range against whichever reference bounds the lab supplied. eGFR
+ * typically carries only a lower bound, so each bound is checked on its own;
+ * an analyte with no bounds at all is never flagged.
+ */
+export function isFlagged(a: { value?: unknown; referenceLow?: unknown; referenceHigh?: unknown }): boolean {
+  const v = Number(a.value)
+  if (!Number.isFinite(v)) return false
+  const high = a.referenceHigh != null && Number.isFinite(Number(a.referenceHigh)) && v > Number(a.referenceHigh)
+  const low = a.referenceLow != null && Number.isFinite(Number(a.referenceLow)) && v < Number(a.referenceLow)
+  return high || low
+}
+
 /** Latest blood analytes, summarised for evidence and LLM prompts. Verified data shape. */
 export async function bloodSummary(sim: SimClient, patientId: string): Promise<string> {
   const v = await sim.siteView('diagnostics', { patient: patientId, limit: 100 })
@@ -35,15 +48,15 @@ export async function bloodSummary(sim: SimClient, patientId: string): Promise<s
       .at(-1)
   const fmt = (r: SimResource | undefined, ids: string[]) => {
     const analytes = ((r?.data as any)?.analytes ?? []) as any[]
-    return ids
+    const parts = ids
       .map((id) => {
         const a = analytes.find((x) => x.id === id)
         if (!a) return null
-        const flagged = a.referenceHigh != null && (a.value > a.referenceHigh || a.value < a.referenceLow)
-        return `${a.name ?? id} ${a.value}${flagged ? ' (flagged)' : ''}`
+        return `${a.name ?? id} ${a.value}${isFlagged(a) ? ' (flagged)' : ''}`
       })
       .filter(Boolean)
-      .join(', ')
+    // An absent panel is said plainly: this text goes into the letter's results section.
+    return parts.length ? parts.join(', ') : 'none on record'
   }
   const ue = latestOf('ue')
   const fbc = latestOf('fbc')
@@ -134,7 +147,7 @@ export async function detectForPatient(
   const docText = String((monitoringDoc?.data as any)?.text ?? '')
   /** Real clause from the document containing the keyword, never a hardcoded string. */
   const clauseWith = (keyword: string): string => {
-    const m = docText.match(new RegExp(`[^.;]*${keyword}[^.;]*`, 'i'))
+    const m = docText.match(new RegExp(`[^.;]*${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^.;]*`, 'i'))
     return (m?.[0] ?? docText.slice(0, 120)).trim()
   }
   if (monitoringDoc) {
@@ -239,9 +252,7 @@ export async function detectForPatient(
   // as a record quote. Unlocatable quotes are dropped and counted.
   const sources = hospRes
     .filter((r) => r.kind === 'document' || r.kind === 'message')
-    .map((r) => ({ id: r.id, haystack: `${r.title ?? ''}: ${String((r.data as any)?.text ?? '')}`.toLowerCase() }))
-  const locateQuote = (quote: string): string | undefined =>
-    sources.find((src) => src.haystack.includes(quote.trim().toLowerCase()))?.id
+    .map((r) => ({ id: r.id, haystack: `${r.title ?? ''}: ${String((r.data as any)?.text ?? '')}` }))
   const freeText = hospRes
     .filter((r) => r.kind === 'document' || r.kind === 'message')
     .map((r) => `[${r.kind} ${r.id}] ${r.title ?? ''}: ${(r.data as any)?.text ?? ''}`)
@@ -251,8 +262,8 @@ export async function detectForPatient(
     let dropped = 0
     for (const prop of proposals) {
       const located = prop.quotes
-        .map((quote) => ({ quote, sourceId: locateQuote(quote) }))
-        .filter((x): x is { quote: string; sourceId: string } => !!x.sourceId)
+        .map((quote) => locateQuote(sources, quote))
+        .filter((x): x is { quote: string; sourceId: string } => !!x)
       dropped += prop.quotes.length - located.length
       const target = prop.kind === 'other' ? undefined : items.find((i) => i.id === slug(prop.kind))
       if (target) {
@@ -273,6 +284,35 @@ export async function detectForPatient(
   }
 
   return items
+}
+
+/**
+ * Find a model quote in the record. Matching forgives what a model changes
+ * in passing (case, line wrapping, curly versus straight quotes, quote marks
+ * wrapped around the whole quote) but the text returned is the record's own
+ * substring, so what renders as a quote is always verbatim record text.
+ */
+export function locateQuote(
+  sources: Array<{ id: string; haystack: string }>,
+  quote: string,
+): { sourceId: string; quote: string } | undefined {
+  const wanted = quote.trim().replace(/^["'\u2018\u2019\u201c\u201d]+|["'\u2018\u2019\u201c\u201d]+$/g, '').trim()
+  if (!wanted) return undefined
+  const pattern = wanted
+    .split(/\s+/)
+    .map((word) =>
+      word
+        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/['\u2018\u2019]/g, "['\u2018\u2019]")
+        .replace(/["\u201c\u201d]/g, '["\u201c\u201d]'),
+    )
+    .join('\\s+')
+  const re = new RegExp(pattern, 'i')
+  for (const src of sources) {
+    const m = re.exec(src.haystack)
+    if (m) return { sourceId: src.id, quote: m[0] }
+  }
+  return undefined
 }
 
 /** Load a patient's directory row (name, conditions, needs, goals) + attendance + record profile. */
@@ -350,9 +390,9 @@ export async function loadProfile(sim: SimClient, patientId: string, birthDate: 
   for (const panelId of ['ue', 'fbc']) {
     const r = latest(panelId)
     for (const a of (((r?.data as any)?.analytes ?? []) as any[])) {
-      const flagged = a.referenceHigh != null && (a.value > a.referenceHigh || a.value < a.referenceLow)
+      const flagged = isFlagged(a)
       if (flagged || a.id === 'egfr' || a.id === 'potassium') {
-        facts.push({ label: a.name ?? a.id, value: `${a.value}${a.unit ? ' ' + a.unit : ''}`, bad: !!flagged, source: `diagnostics · ${(r!.data as any)?.panel?.name ?? panelId} report ${r!.id}` })
+        facts.push({ label: a.name ?? a.id, value: `${a.value}${a.unit ? ' ' + a.unit : ''}`, bad: flagged, source: `diagnostics · ${(r!.data as any)?.panel?.name ?? panelId} report ${r!.id}` })
       }
     }
   }

@@ -10,7 +10,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-delete process.env.OPENAI_API_KEY // force the canned drafts: no model calls in tests
+process.env.OPENAI_API_KEY = '' // force the canned drafts: no model calls in tests (set, not deleted: a later loadDotEnv() cannot restore it from .env)
 import type { BoardState, ChecklistItem, OrchestratorContext, PatientRow } from '../src/orchestrator/model.ts'
 import type { SimClient } from '../src/sim/index.ts'
 import { runUntilSettled, readyForDischarge } from '../src/orchestrator/run.ts'
@@ -129,7 +129,9 @@ test('a draft-only summary is saved but never sent', async () => {
 
 test('a normal summary is saved, sent, and cited hospital documents are shared with community', async () => {
   const f = fakeSim({ hospital: [{ id: 'r-1', kind: 'document', version: 1, visibleTo: ['hospital'] }], diagnostics: [] })
-  const it = item('sim-000001-summary', 'hospital', 'approved')
+  const it = item('sim-000001-summary', 'hospital', 'approved', {
+    evidence: [{ resourceId: 'r-1', site: 'hospital', quote: 'home equipment and medication handover not confirmed' }],
+  })
   const res = await resolverFor(it)!(ctxFor(f.sim, [it]), it)
   assert.deepEqual(f.writes.map((w) => w.body.type), ['save_discharge_summary', 'process_document', 'share_record'])
   assert.equal(f.writes[1].body.documentCommand, 'send')

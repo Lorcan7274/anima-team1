@@ -29,7 +29,12 @@ function sourceFiles(dir: string): string[] {
   })
 }
 const root = new URL('..', import.meta.url).pathname
-const sources = [...sourceFiles(join(root, 'src')), ...sourceFiles(join(root, 'scripts'))].map((f) => ({ file: f.slice(root.length), text: readFileSync(f, 'utf8') }))
+// Client code only: src/sim/local is the local stand-in SERVER (it serves an
+// OpenAPI document full of JSON-schema `type: 'object'` literals and accepts
+// actions rather than sending them), so it sits on the other side of this contract.
+const sources = [...sourceFiles(join(root, 'src')), ...sourceFiles(join(root, 'scripts'))]
+  .filter((f) => !f.startsWith(join(root, 'src', 'sim', 'local') + '/'))
+  .map((f) => ({ file: f.slice(root.length), text: readFileSync(f, 'utf8') }))
 const literals = (pattern: RegExp) => {
   const found = new Map<string, string>()
   for (const { file, text } of sources) for (const m of text.matchAll(pattern)) found.set(m[1], file)

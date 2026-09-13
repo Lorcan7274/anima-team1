@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-delete process.env.OPENAI_API_KEY // canned model path: no network in tests
+process.env.OPENAI_API_KEY = '' // canned model path: no network in tests. Set, not deleted: process.loadEnvFile never overrides an existing variable, but would restore a deleted one from a developer's .env
 import type { ChecklistItem, PatientRow } from '../src/orchestrator/model.ts'
 import { bloodSummary, detectForPatient } from '../src/orchestrator/detect.ts'
 import { amiraHospitalView, eleanorCommunityView, fakeSim, FIT } from './helpers/fake-sim.ts'
@@ -173,4 +173,54 @@ test('neutrophil history is computed from the patient\'s own FBC series', async 
   assert.doesNotMatch(await bloodSummary(flat.sim, 'SIM-000001'), /History/, 'no dip below range, no history sentence')
   const none = fakeSim({ views: { diagnostics: [] } })
   assert.doesNotMatch(await bloodSummary(none.sim, 'SIM-000001'), /History|nadir/, 'no results, nothing invented')
+})
+
+test('an analyte with only a lower reference bound (eGFR) is flagged when low; only an upper bound, flagged when high', async () => {
+  const report = (id: string, panelId: string, analytes: any[]) => ({
+    id, kind: 'report', createdAt: FIT - 86_400_000, data: { kind: 'blood-result', panel: { id: panelId, name: panelId }, analytes },
+  })
+  const f = fakeSim({
+    views: {
+      diagnostics: [
+        report('ue', 'ue', [
+          { id: 'egfr', name: 'eGFR', value: 49, referenceLow: 60 },
+          { id: 'potassium', name: 'Potassium', value: 5.9, referenceHigh: 5.3 },
+          { id: 'creatinine', name: 'Creatinine', value: 107, referenceLow: 60, referenceHigh: 110 },
+        ]),
+      ],
+    },
+  })
+  const text = await bloodSummary(f.sim, 'SIM-000001')
+  assert.match(text, /eGFR 49 \(flagged\)/, 'below the only bound there is')
+  assert.match(text, /Potassium 5\.9 \(flagged\)/, 'above the only bound there is')
+  assert.match(text, /Creatinine 107(?! \(flagged\))/, 'inside both bounds')
+  const { loadProfile } = await import('../src/orchestrator/detect.ts')
+  const profile = await loadProfile(f.sim, 'SIM-000001', undefined, undefined)
+  const egfr = profile.facts.find((x) => x.label === 'eGFR')
+  assert.equal(egfr?.bad, true, 'the banner shows eGFR 49 in the alert colour')
+})
+
+test('bloodSummary says plainly when a panel is not on record instead of printing an empty clause', async () => {
+  const f = fakeSim({ views: { diagnostics: [] } })
+  const text = await bloodSummary(f.sim, 'SIM-000001')
+  assert.doesNotMatch(text, /: \./, 'no dangling "Latest U&E: ."')
+  assert.match(text, /U&E.*(none|no result|not on record)/i)
+  assert.match(text, /FBC.*(none|no result|not on record)/i)
+})
+
+test('a model quote that differs only in whitespace, case or curly quotes is located, and the record\'s own words are kept', async () => {
+  const { locateQuote } = await import('../src/orchestrator/detect.ts')
+  const sources = [
+    { id: 'r-1', haystack: 'Admission note: Blood monitoring requested;\n  home equipment and the patient’s "medication handover" not confirmed.' },
+    { id: 'r-6', haystack: 'Respiratory: review worsening oxygen requirement' },
+  ]
+  assert.deepEqual(locateQuote(sources, 'home equipment and the patient\'s "medication handover" not confirmed'),
+    { sourceId: 'r-1', quote: 'home equipment and the patient’s "medication handover" not confirmed' })
+  assert.deepEqual(locateQuote(sources, 'Blood monitoring requested; home equipment'),
+    { sourceId: 'r-1', quote: 'Blood monitoring requested;\n  home equipment' })
+  assert.equal(locateQuote(sources, 'REVIEW WORSENING OXYGEN')?.sourceId, 'r-6')
+  assert.equal(locateQuote(sources, '“worsening oxygen requirement”')?.quote, 'worsening oxygen requirement', 'surrounding quote marks the model added are not part of the record')
+  assert.equal(locateQuote(sources, 'potassium rising'), undefined, 'an invented line never locates')
+  assert.equal(locateQuote(sources, ''), undefined)
+  assert.equal(locateQuote(sources, '"'), undefined, 'a bare quote mark is not evidence')
 })

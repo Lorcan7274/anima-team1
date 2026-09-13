@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-delete process.env.OPENAI_API_KEY
+process.env.OPENAI_API_KEY = '' // canned drafts only; set rather than deleted so a later loadDotEnv() cannot restore a developer's key
 import type { BoardState, ChecklistItem, OrchestratorContext } from '../src/orchestrator/model.ts'
 import { detectAll, prepareEscalation, runUntilSettled } from '../src/orchestrator/run.ts'
 import { amiraHospitalView, fakeSim, FIT } from './helpers/fake-sim.ts'
@@ -159,4 +159,75 @@ test('undoHold reinstates a clinician-cleared hold, and only that', async () => 
   clearHold(ctx.board, hold.id, 'Dr Test')
   ctx.board.patients[0].stage = 'discharged'
   assert.equal(undoHold(ctx.board, hold.id, 'Dr Test'), false, 'a recorded discharge is not reversed from here')
+})
+
+test('busy is false after the loop returns early on a later round (everything settled or only proposals left)', async () => {
+  const f = fakeSim({
+    views: { community: [], gp: [] },
+    onAdvance: (_now, views) => { for (const v of views.community ?? []) v.status = 'completed' },
+  })
+  // Round 1 resolves and verifies the visit; round 2 finds only the proposal and returns.
+  const ctx = ctxFor(f.sim, [item('visit', 'approved'), item('follow-up', 'proposed')])
+  await runUntilSettled(ctx)
+  assert.equal(ctx.board.patients[0].items[0].state, 'verified')
+  assert.equal(ctx.board.busy, false, 'the runner is not calling the simulator any more')
+  // Round 1 settles everything; round 2 finds nothing open and returns.
+  const g = fakeSim({ views: { community: [] }, onAdvance: (_now, views) => { for (const v of views.community ?? []) v.status = 'completed' } })
+  const ctx2 = ctxFor(g.sim, [item('visit', 'approved')])
+  await runUntilSettled(ctx2)
+  assert.equal(ctx2.board.busy, false)
+})
+
+test('the round cap is written to the log naming the items still unverified', async () => {
+  const f = fakeSim({ views: { community: [] } })
+  const ctx = ctxFor(f.sim, [item('visit', 'approved')])
+  await runUntilSettled(ctx, { maxRounds: 2 })
+  assert.equal(ctx.board.patients[0].items[0].state, 'awaiting_verification')
+  assert.ok(ctx.board.log.some((l) => /round cap|out of rounds|still awaiting verification/i.test(l) && l.includes('sim-000001-visit')), ctx.board.log.join('\n'))
+})
+
+test('a verifier that throws (simulator hiccup) does not abort the run: the item stays awaiting and is re-verified next round', async () => {
+  let reads = 0
+  const f = fakeSim({
+    views: { community: [] },
+    onAdvance: (_now, views) => { for (const v of views.community ?? []) v.status = 'completed' },
+  })
+  const realView = f.sim.siteView.bind(f.sim)
+  ;(f.sim as any).siteView = async (site: Parameters<SimClient['siteView']>[0], q?: Parameters<SimClient['siteView']>[1]) => {
+    if (site === 'community' && ++reads === 1) throw new Error('GET /view failed with HTTP 0: no response within 45000ms')
+    return realView(site, q)
+  }
+  const ctx = ctxFor(f.sim, [item('visit', 'approved')])
+  await runUntilSettled(ctx, { maxRounds: 3 })
+  const it = ctx.board.patients[0].items[0]
+  assert.equal(it.state, 'verified', 'verified on the second round after the first read failed')
+  assert.equal(f.advances, 2)
+  assert.equal(f.writes.length, 1, 'never re-resolved')
+  assert.ok(ctx.board.log.some((l) => /verif.*sim-000001-visit.*(HTTP 0|no response)/i.test(l)), 'the hiccup is in the audit log')
+  assert.equal(ctx.board.busy, false)
+})
+
+test('an approved item with no resolver is marked failed, never left approved forever', async () => {
+  const { resolveItem } = await import('../src/orchestrator/run.ts')
+  const f = fakeSim()
+  const ctx = ctxFor(f.sim, [item('care-package', 'approved')])
+  await resolveItem(ctx, ctx.board.patients[0].items[0])
+  const it = ctx.board.patients[0].items[0]
+  assert.equal(it.state, 'failed')
+  assert.match(it.error ?? '', /no resolver/)
+  assert.equal(f.writes.length, 0)
+})
+
+test('an item left resolving by an interrupted run is retried with a fresh attempt number', async () => {
+  const f = fakeSim({
+    views: { community: [] },
+    onAdvance: (_now, views) => { for (const v of views.community ?? []) v.status = 'completed' },
+  })
+  const ctx = ctxFor(f.sim, [item('visit', 'resolving', { attempts: 1 })])
+  await runUntilSettled(ctx)
+  const it = ctx.board.patients[0].items[0]
+  assert.equal(it.state, 'verified')
+  assert.equal(it.attempts, 2, 'a new attempt, so the idempotency keys are new too')
+  assert.equal(f.writes[0].key, 'w-sim-000001-visit-visit-2')
+  assert.ok(ctx.board.log.some((l) => /interrupted|resolving/i.test(l) && l.includes('sim-000001-visit')))
 })

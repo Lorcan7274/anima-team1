@@ -114,6 +114,26 @@ const SummarySchema = z.object({
 
 export type DraftedSummary = z.infer<typeof SummarySchema>
 
+/** The simulator's per-section cap (test/fixtures/openapi-enums.json: limits.dischargeSection). */
+const SECTION_MAX = 10_000
+/** The simulator's clinicalDetails cap (limits.clinicalDetails). */
+const CLINICAL_DETAILS_MAX = 2_000
+
+/**
+ * The simulator rejects a summary with a missing or empty section, and the
+ * model (or a sparse record) can leave one blank. Every section is made
+ * non-empty and within the size cap before it is sent; nothing is invented,
+ * a blank section says so.
+ */
+export function completeSections(sections: Partial<Record<keyof DraftedSummary, unknown>>): DraftedSummary {
+  const out = {} as DraftedSummary
+  for (const k of Object.keys(SummarySchema.shape) as Array<keyof DraftedSummary>) {
+    const text = String(sections[k] ?? '').trim()
+    out[k] = (text || 'Not documented.').slice(0, SECTION_MAX)
+  }
+  return out
+}
+
 /** Draft all seven discharge sections, citing only the provided record. */
 export async function draftDischargeSummary(context: {
   patientName: string
@@ -141,12 +161,12 @@ export async function draftDischargeSummary(context: {
       diagnoses: `${context.conditions.join('; ') || 'As per record'}.`,
       medicationChanges: 'Discharge medication supply arranged. Medicines reconciliation position: as documented in the record; not confirmed by the drafting agent.',
       results: context.bloodSummary,
-      followUp: context.planned.join(' '),
+      followUp: context.planned.length ? context.planned.join(' ') : 'No further arrangements made by the discharge agent; follow-up at the GP practice\'s discretion.',
       gpActions: 'Review outstanding results when available; assess at the arranged follow-up.',
     }),
     WRITER_MODEL,
   )
-  return { sections: out.value, source: out.source }
+  return { sections: completeSections(out.value), source: out.source }
 }
 
 // --- Escalation handover ------------------------------------------------------
@@ -207,5 +227,7 @@ export async function draftClinicalDetails(
       `Be accurate about trends, do not exaggerate or add conditions not listed. 1-2 sentences.`,
     () => ({ clinicalDetails: `Routine post-discharge monitoring${conditions.length ? ` (${conditions.join(', ')})` : ''}. ${bloodSummary}` }),
   )
-  return { text: out.value.clinicalDetails, source: out.source }
+  // The request form field is capped by the simulator; a long result history must not make the order fail.
+  const text = out.value.clinicalDetails.trim().slice(0, CLINICAL_DETAILS_MAX) || 'Routine post-discharge monitoring.'
+  return { text, source: out.source }
 }

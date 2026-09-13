@@ -126,3 +126,33 @@ test('createTeam gets a long timeout of its own, because a fresh world is seeded
   clearTimeout(keepAlive)
   assert.ok(Date.now() - started < 2000, 'the explicit timeout is the one used')
 })
+
+test('advanceClock never silently truncates: a jump beyond 10080 minutes is sent as several capped calls, all keeping the world paused', async () => {
+  const { impl, calls } = fakeFetch(() => ({ body: { now: 1, paused: true } }))
+  const client = new SimClient({ origin: 'https://sim.example', apiKey: 'k', fetch: impl })
+  await client.advanceClock(121)
+  assert.deepEqual(JSON.parse(calls[0].body!), { paused: true, advanceMinutes: 121 })
+  calls.length = 0
+  await client.advanceClock(25_000)
+  assert.deepEqual(calls.map((c) => JSON.parse(c.body!).advanceMinutes), [10_080, 10_080, 4_840])
+  assert.ok(calls.every((c) => JSON.parse(c.body!).paused === true))
+  calls.length = 0
+  await client.advanceClock(10_080)
+  assert.equal(calls.length, 1)
+})
+
+test('a non-JSON error page becomes a SimApiError carrying the text, not a parse crash', async () => {
+  const impl = (async () => new Response('<html><body>502 Bad Gateway</body></html>', { status: 502, headers: { 'content-type': 'text/html' } })) as typeof fetch
+  const client = new SimClient({ origin: 'https://sim.example', apiKey: 'k', fetch: impl })
+  await assert.rejects(() => client.clock(), (e: unknown) => e instanceof SimApiError && e.status === 502 && typeof e.body === 'string' && /502 Bad Gateway/.test(e.body))
+})
+
+test('withKey keeps the fetch and trace hooks of the client it copies', async () => {
+  const seen: string[] = []
+  const { impl, calls } = fakeFetch(() => ({ body: { ok: true } }))
+  const client = new SimClient({ origin: 'https://sim.example', fetch: impl, trace: (t) => seen.push(t.path) })
+  const keyed = client.withKey('k2')
+  await keyed.team()
+  assert.equal(calls[0].headers.Authorization, 'Bearer k2')
+  assert.deepEqual(seen, ['/api/team'])
+})

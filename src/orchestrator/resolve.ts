@@ -76,11 +76,7 @@ const resolveSummary: Resolver = async (ctx, item) => {
     conditions: row?.conditions ?? [],
     documentTexts: item.evidence.map((e) => e.quote),
     bloodSummary: bloods,
-    planned: [
-      'Community home-support visit booked.',
-      'Home activity watch issued.',
-      'GP telephone review within 48h.',
-    ],
+    planned: arrangementsFor(row?.items ?? [], item),
   })
   item.generated = summarySource
   const saved = await ctx.sim.siteAction(
@@ -102,7 +98,7 @@ const resolveSummary: Resolver = async (ctx, item) => {
   // evidence quotes becomes visible to the community team. The summary itself
   // cannot be shared this way (the sim answers 409 "use the document workflow"),
   // it reaches the GP through 'send'. Best-effort: a failure is logged, not fatal.
-  const shared = await shareDocumentsWithCommunity(ctx, item)
+  const shared = await shareDocumentsWithCommunity(ctx, item, saved.id)
   return {
     action: 'save_discharge_summary+send' + (shared.length ? `+share_record(${shared.join(',')})` : ''),
     resourceId: saved.id, alsoResourceIds: shared.length ? shared : undefined,
@@ -110,11 +106,42 @@ const resolveSummary: Resolver = async (ctx, item) => {
   }
 }
 
-/** share_record every hospital document the item cites to community. Returns the ids shared. */
-async function shareDocumentsWithCommunity(ctx: OrchestratorContext, item: ChecklistItem): Promise<string[]> {
+/**
+ * What the letter may say the agent has arranged: one line per item on THIS
+ * patient's checklist that is approved or further along (all approved items
+ * are acted on in the same round as the letter). Proposed, failed and
+ * human-only items are not arrangements, and a patient with no such items
+ * gets no claim at all: a discharge letter must never state a visit or a
+ * device that was not organised.
+ */
+export function arrangementsFor(items: ChecklistItem[], summary: ChecklistItem): string[] {
+  const lines: string[] = []
+  const active = (i: ChecklistItem) => i.id !== summary.id && (i.state === 'approved' || i.state === 'resolving' || i.state === 'awaiting_verification' || i.state === 'verified') && i.owner !== 'clinician'
+  for (const i of items.filter(active)) {
+    if (i.id.endsWith('-medicines')) lines.push('Discharge medicines dispensed and collected from pharmacy.')
+    else if (i.id.endsWith('-bloods')) lines.push('Routine U&E and FBC ordered for post-discharge monitoring.')
+    else if (i.id.endsWith('-device')) lines.push('Home activity watch issued.')
+    else if (i.id.endsWith('-visit')) lines.push('Community home-support visit booked.')
+    else if (i.id.endsWith('-follow-up')) lines.push('GP telephone review within 48h.')
+  }
+  return lines
+}
+
+/**
+ * share_record the hospital documents the item's evidence cites (kind document,
+ * not yet visible to community) to the community team. Never the summary just
+ * saved (excludeId), which the sim refuses to share, and never uncited
+ * letters: a record is shared because the checklist quotes it, not because it
+ * exists. Returns the ids shared.
+ */
+async function shareDocumentsWithCommunity(ctx: OrchestratorContext, item: ChecklistItem, excludeId?: string): Promise<string[]> {
   const shared: string[] = []
+  const cited = new Set(item.evidence.filter((e) => e.site === 'hospital').map((e) => e.resourceId))
+  if (cited.size === 0) return shared
   const view = await ctx.sim.siteView('hospital', { patient: item.patientId, limit: 100 })
-  const docs = ((view.resources ?? []) as any[]).filter((r) => r.kind === 'document' && !(r.visibleTo ?? []).includes('community'))
+  const docs = ((view.resources ?? []) as any[]).filter(
+    (r) => r.kind === 'document' && r.id !== excludeId && cited.has(r.id) && !(r.visibleTo ?? []).includes('community'),
+  )
   for (const doc of docs) {
     try {
       await ctx.sim.siteAction(
@@ -238,9 +265,11 @@ export function findFreeTelephoneSlot(
   )
   for (const session of sessions.sort((x, y) => (x.data?.startsAt ?? 0) - (y.data?.startsAt ?? 0))) {
     const d = session.data ?? {}
-    const step = (d.slotMinutes ?? 15) * 60_000
+    // A zero or missing slot length must never stall the loop: default to 15 minutes.
+    const step = (Number(d.slotMinutes) > 0 ? Number(d.slotMinutes) : 15) * 60_000
     const blocked = new Set(((d.blockedSlots ?? []) as any[]).map((b) => b.startsAt))
-    for (let t = Math.max(d.startsAt ?? dayStart, dayStart); t + step <= (d.endsAt ?? 0); t += step) {
+    if (!(Number(d.endsAt) > 0)) continue // no end time: nothing to book into
+    for (let t = Math.max(d.startsAt ?? dayStart, dayStart); t + step <= Number(d.endsAt); t += step) {
       if (blocked.has(t) || taken.has(`${d.clinician ?? ''}@${t}`)) continue
       return { session, startsAt: t }
     }
@@ -257,22 +286,29 @@ export function findFreeTelephoneSlot(
 const resolveMedicines: Resolver = async (ctx, item) => {
   const view = await ctx.sim.siteView('pharmacy', { patient: item.patientId, limit: 60 })
   const resources = (view.resources ?? []) as any[]
+  const prescriptions = resources.filter((r) => r.kind === 'prescription')
+  // The chain acts on the prescription detection cited (evidence resourceId),
+  // never on "any prescription for this patient": the record can hold an old
+  // collected one that would otherwise pass the verifier untouched. Without a
+  // citation (hand-built items) fall back to the approved one, then to a
+  // partly completed chain (dispensed, then collected).
+  const cited = new Set(item.evidence.map((e) => e.resourceId))
+  const byStatus = (status: string) => prescriptions.find((r) => r.status === status)
+  const rx = prescriptions.find((r) => cited.has(r.id)) ?? byStatus('approved') ?? byStatus('dispensed') ?? byStatus('collected')
+  if (!rx) throw new Error('no approved prescription found in pharmacy view')
   // Resume where a previous attempt got to: a chain that reached 'collected'
   // or 'dispensed' before the simulator dropped the connection must not be
   // reported as "no approved prescription" on the retry.
-  const done = resources.find((r) => r.kind === 'prescription' && r.status === 'collected')
-  if (done) {
-    return { action: 'link+dispense+collect (already collected on a previous attempt)', resourceId: done.id, idempotencyKey: key(ctx, item, 'link'), atSimTime: await simNow(ctx) }
+  if (rx.status === 'collected') {
+    return { action: 'link+dispense+collect (already collected on a previous attempt)', resourceId: rx.id, idempotencyKey: key(ctx, item, 'link'), atSimTime: await simNow(ctx) }
   }
-  const dispensed = resources.find((r) => r.kind === 'prescription' && r.status === 'dispensed')
-  if (dispensed) {
+  if (rx.status === 'dispensed') {
     const cur = await ctx.sim.siteAction('pharmacy', {
-      type: 'collect', patientId: item.patientId, resourceId: dispensed.id, expectedVersion: dispensed.version,
+      type: 'collect', patientId: item.patientId, resourceId: rx.id, expectedVersion: rx.version,
     }, key(ctx, item, 'collect'))
     return { action: 'collect (resumed after an earlier dispense)', resourceId: cur.id, idempotencyKey: key(ctx, item, 'collect'), atSimTime: await simNow(ctx) }
   }
-  const rx = resources.find((r) => r.kind === 'prescription' && r.status === 'approved')
-  if (!rx) throw new Error('no approved prescription found in pharmacy view')
+  if (rx.status !== 'approved') throw new Error(`prescription ${rx.id} is ${rx.status}, not approved: nothing to dispense`)
   const product = resources.find(
     (r) => r.kind === 'pharmacy-product' && (r.data?.drug ?? '') === (rx.data?.drug ?? ''),
   )
