@@ -15,6 +15,10 @@ import type { SimClient } from '../sim/index.ts'
 import { seededRandom } from '../story/baseline.ts'
 
 const MIN = 60_000
+const DAY = 24 * 60 * MIN
+
+/** Remove the entries a predicate selects, in place. */
+const prune = <T>(xs: T[], gone: (x: T) => boolean) => { let w = 0; for (const x of xs) if (!gone(x)) xs[w++] = x; xs.length = w }
 
 const FIRST = ['Amira', 'Grace', 'Thomas', 'Eleanor', 'Mohammed', 'Sofia', 'George', 'Aisha', 'Oliver', 'Priya', 'Daniel', 'Fatima', 'Harry', 'Zara', 'Leo', 'Maya',
   'Isaac', 'Nadia', 'Samuel', 'Chloe', 'Yusuf', 'Hannah', 'Arjun', 'Ella', 'Kwame', 'Lily', 'Tariq', 'Ruby', 'Jacob', 'Anika', 'Ravi', 'Freya', 'Adam', 'Daisy', 'Oscar', 'Clara']
@@ -46,7 +50,9 @@ export function offlineSim(seed = 'offline', startAt = 1789200000000, arrivalsPe
   const some = <T>(xs: T[], n: number) => { const out: T[] = []; for (let i = 0; i < n; i++) { const x = pick(xs); if (!out.includes(x)) out.push(x) }; return out }
 
   const arrive = () => {
-    const pid = `SIM-${String(100000 + Math.floor(rand() * 899999)).padStart(6, '0')}`
+    // A fresh directory id; a draw that collides with someone already known is redrawn, never dropped.
+    let pid = ''
+    for (let i = 0; i < 20 && (!pid || patients[pid]); i++) pid = `SIM-${String(100000 + Math.floor(rand() * 899999)).padStart(6, '0')}`
     if (patients[pid]) return
     const acuity = rand() < 0.15 ? '2' : '3'
     const conds = some(CONDITIONS, 1 + Math.floor(rand() * 2))
@@ -57,7 +63,7 @@ export function offlineSim(seed = 'offline', startAt = 1789200000000, arrivalsPe
     })
   }
   // A few people already in the department, like the real seed.
-  for (let i = 0; i < 6; i++) arrive()
+  while (attendances.length < 6) arrive()
   attendances[0].data.stage = 'inpatient'; attendances[0].data.location = 'AMU bed 2'; attendances[0].data.acuity = '2'
   attendances[1].data.stage = 'inpatient'; attendances[1].data.location = 'AMU bed 3'
   attendances[2].data.stage = 'take'; attendances[3].data.stage = 'assessing'
@@ -81,9 +87,14 @@ export function offlineSim(seed = 'offline', startAt = 1789200000000, arrivalsPe
       const n = Math.max(0, Math.round(expected + (rand() - 0.5) * Math.sqrt(expected) * 2))
       now += minutes * MIN
       for (let i = 0; i < n; i++) arrive()
+      // Keep the stand-in bounded on a run that lasts all day: the A&E list
+      // drops attendances discharged more than a day ago, and service records
+      // older than a week (every verifier re-reads within hours).
+      prune(attendances, (a) => a.data.stage === 'discharged' && a.data.dischargedAt !== undefined && now - a.data.dischargedAt > DAY)
+      prune(resources, (r) => now - r.createdAt > 7 * DAY)
       return { now, paused: true, speed: 60, events: [] }
     },
-    hospitalAttendances: async () => ({ resources: attendances.map((a) => ({ ...a, data: { ...a.data } })), patients: Object.values(patients), now }),
+    hospitalAttendances: async () => ({ resources: attendances.map((a) => ({ ...a, data: { ...a.data } })), patients: [...new Set(attendances.map((a) => a.patientId))].map((id) => patients[id!]), now }),
     siteView: async (site: string, q: { patient?: string } = {}) => view(site, q.patient),
     gpDocuments: async () => ({ resources: resources.filter((r) => r.kind === 'discharge-summary' && r.status === 'sent') }),
     wearables: async (patientId?: string) => {
@@ -102,6 +113,7 @@ export function offlineSim(seed = 'offline', startAt = 1789200000000, arrivalsPe
         if (a.version !== body.expectedVersion) throw Object.assign(new Error('version conflict'), { status: 409 })
         const next: Record<string, string> = { assign: a.data.stage, assess: 'assessing', refer: 'take', admit: 'inpatient', discharge: 'discharged' }
         a.data.stage = next[body.hospitalCommand] ?? a.data.stage
+        if (a.data.stage === 'discharged') a.data.dischargedAt = now
         if (body.location) a.data.location = body.location
         if (body.clinician) a.data.clinician = body.clinician
         a.version++
@@ -116,6 +128,8 @@ export function offlineSim(seed = 'offline', startAt = 1789200000000, arrivalsPe
       else if (body.type === 'process_document') {
         const doc = resources.find((x) => x.id === body.resourceId)
         if (!doc) throw Object.assign(new Error('document not found'), { status: 404 })
+        // Like the real simulator, an update names the version it expects; a stale one (a summary already sent) is refused.
+        if (body.expectedVersion !== undefined && doc.version !== body.expectedVersion) throw Object.assign(new Error('version conflict'), { status: 409 })
         doc.status = body.documentCommand === 'send' ? 'sent' : doc.status
         doc.visibleTo = ['hospital', 'gp']; doc.version++
         return { ...doc }

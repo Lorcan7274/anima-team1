@@ -8,6 +8,11 @@
  * same number of beds. People are SVG figures that slide between stations;
  * in a ward bed each carries its discharge checklist as dots that turn green
  * as items verify. Polls /state every 1.5 s; POST /pause toggles the loop.
+ *
+ * A strip under the header says in one sentence which simulator the run is
+ * against (shared world, local stand-in, or a replay with none), what the
+ * engine is doing right now (the phase text, including a failed join), and
+ * what the engine assumes, read from its actual parameters.
  */
 import { createServer } from 'node:http'
 import { snapshot, type FlowState } from './engine.ts'
@@ -92,6 +97,15 @@ export const FLOW_PAGE = `<!doctype html>
   .speed button.on{background:var(--accent);color:#fff}
   .speed .hint{font-size:11px;color:var(--ink-3);padding:0 6px 0 4px}
   .warn{font-size:10px;font-weight:600;letter-spacing:.03em;color:#fff;background:var(--critical);border-radius:4px;padding:2px 6px;white-space:nowrap}
+  .strip{margin-top:14px;padding:10px 14px;border:1px solid var(--hairline);border-radius:10px;background:var(--surface);font-size:12.5px;color:var(--ink-2);display:flex;flex-direction:column;gap:5px}
+  .strip .mode{font-weight:530;color:var(--ink)}
+  .strip .mode.sim{color:var(--accent)}
+  .strip .mode.down{color:var(--critical)}
+  .strip .phase{font-variant-numeric:tabular-nums}
+  .strip .phase.bad{color:var(--critical);font-weight:480}
+  .strip .facts{font-variant-numeric:tabular-nums}
+  .strip .facts b{font-weight:530;color:var(--ink)}
+  .strip .assumed{color:var(--ink-3);font-size:11.5px}
 </style></head><body>
 <div class="top">
   <div class="brand"><div class="mark">H</div><div><h1>Homeward</h1></div></div>
@@ -101,6 +115,12 @@ export const FLOW_PAGE = `<!doctype html>
   <span class="warn" id="warn" style="display:none">Warning: sim server timing out</span>
   <button class="ghost" id="pauseBtn" onclick="togglePause()">Pause</button>
   <div class="clock" id="clock">, <small id="clockSub">sim time since start</small></div>
+</div>
+<div class="strip">
+  <div class="mode" id="modeLine">Connecting to the flow process</div>
+  <div class="phase" id="phase"></div>
+  <div class="facts" id="facts"></div>
+  <div class="assumed" id="assumed"></div>
 </div>
 <div class="lane">
   <div class="lane-head"><h2>With Homeward</h2><span class="tag live" id="modeTag">live simulator world</span>
@@ -130,7 +150,26 @@ const rel = (ms, from) => {
   return (d ? d + 'd ' : '') + h + 'h ' + String(m % 60).padStart(2, '0') + 'm'
 }
 let last = null
+let missedPolls = 0
 const built = {}
+const MODE_COPY = {
+  offline: 'Local stand-in: no simulator connected, outcomes follow the timings verified in the real simulator',
+  snapshot: 'Replay of a recorded run, no simulator connected',
+}
+function modeCopy(s) {
+  if (s.mode === 'offline') return MODE_COPY.offline
+  if (s.mode === 'snapshot') return 'Replay of a recorded run (' + (s.recordedMode === 'offline' ? 'local stand-in' : s.recordedMode === 'local' ? 'local simulator' : 'shared simulator world ' + s.world) + '), no simulator connected'
+  if (s.mode === 'local') return 'Local simulator at ' + (s.simOrigin || 'SIM_ORIGIN') + ': world ' + s.world + ', every move is a real action'
+  return 'Live: shared simulator world ' + s.world + (s.simOrigin ? ' at ' + s.simOrigin : '') + ', every move is a real action in the simulator'
+}
+function speedCopy(s) {
+  const tk = s.ticks || []
+  if (tk.length < 2) return ''
+  const a = tk[0], b = tk[tk.length - 1]
+  const real = (b.realAt - a.realAt) / 1000, sim = (b.simNow - a.simNow) / 60000
+  return real > 0 && sim > 0 ? ' · measured ' + (sim / real).toFixed(0) + ' sim-min per real second' : ''
+}
+const num = (x, d) => (typeof x === 'number' && isFinite(x) ? x.toFixed(d) : '?')
 function ensureStations(lane, W) {
   if (lane.dataset.built) return
   lane.dataset.built = '1'
@@ -154,7 +193,7 @@ function ensureStations(lane, W) {
   }
 }
 // Layout one lane: returns nothing, moves figures in place.
-function layoutLane(laneId, people, stageOf, bedOf, W, now, live, forcedOf) {
+function layoutLane(laneId, people, stageOf, bedOf, W, now, live, forcedOf, archivedHome) {
   const lane = document.getElementById(laneId)
   ensureStations(lane, W)
   const width = lane.clientWidth || 1000
@@ -164,9 +203,9 @@ function layoutLane(laneId, people, stageOf, bedOf, W, now, live, forcedOf) {
   const counts = {}
   for (const s of STATIONS) {
     const list = byStation[s.key] || []
-    counts[s.key] = list.length
+    counts[s.key] = list.length + (s.key === 'home' ? (archivedHome || 0) : 0)
     const nameEl = lane.querySelector('.station[data-key="' + s.key + '"] .n')
-    nameEl.textContent = list.length ? String(list.length) : ''
+    nameEl.textContent = counts[s.key] ? String(counts[s.key]) : ''
     nameEl.classList.toggle('hot', s.key === 'take' && list.length > 0)
     const x0 = s.x0 * width + 8, x1 = s.x1 * width - 8
     const cell = 38, rowH = 50
@@ -214,7 +253,8 @@ function layoutLane(laneId, people, stageOf, bedOf, W, now, live, forcedOf) {
       } else dots.innerHTML = ''
       el.querySelector('.badge')?.remove()
       if (live && p.error && s.key !== 'home') el.insertAdjacentHTML('beforeend', '<span class="badge"></span>')
-      el.title = p.name + ' · ' + esc(p.complaint) + ' · acuity ' + p.acuity +
+      // A title is a property, not markup: plain text, nothing escaped or it would show the entities.
+      el.title = p.name + ' · ' + p.complaint + ' · acuity ' + p.acuity +
         (inWard ? (live ? (fit ? ' · medically fit, discharge checklist running' : ' · being treated, fit in ' + rel(p.fitAt, now)) : ' · in a bed (model)') : '') +
         (s.key === 'home' ? (forced ? ' · sent home early under bed pressure, checklist items outstanding' : ' · home' + (p.homeFrom === 'ae' ? ' from A&E' : ' from the ward')) : '') +
         (live && p.error ? ' · last action failed, retrying: ' + p.error : '') +
@@ -235,24 +275,62 @@ function layoutLane(laneId, people, stageOf, bedOf, W, now, live, forcedOf) {
 function render(s) {
   last = s
   const W = s.params.wardSize
-  document.getElementById('clock').innerHTML = (s.startedAt ? '+' + rel(s.simNow, s.startedAt) : ', ') + '<small id="clockSub">sim time since start · tick ' + s.tick + ' · ' + s.params.stepMinutes + ' sim-min per tick</small>'
+  document.getElementById('clock').innerHTML = (s.startedAt ? '+' + rel(s.simNow, s.startedAt) : ', ') + '<small id="clockSub">sim time since start · tick ' + Number(s.tick) + ' · ' + Number(s.params.stepMinutes) + ' sim-min per tick</small>'
   document.getElementById('pauseBtn').textContent = s.paused ? 'Resume' : 'Pause'
   const mt = document.getElementById('modeTag')
-  if (s.mode === 'offline') { mt.className = 'tag sim'; mt.textContent = 'simulated · verified simulator timings'; mt.title = 'Local stand-in for the simulator: results 120 min, visits 90, watch reading 10, letters and tasks at once' }
-  else { mt.className = 'tag live'; mt.textContent = 'live simulator world' }
+  if (s.mode === 'offline') { mt.className = 'tag sim'; mt.textContent = 'local stand-in · verified simulator timings'; mt.title = MODE_COPY.offline + ': results 120 min, visits 90, watch reading 10, letters and tasks at once' }
+  else if (s.mode === 'snapshot') { mt.className = 'tag model'; mt.textContent = 'replay · simulator not connected'; mt.title = MODE_COPY.snapshot }
+  else { mt.className = 'tag live'; mt.textContent = s.mode === 'local' ? 'local simulator' : 'live simulator world'; mt.title = '' }
+  const modeLine = document.getElementById('modeLine')
+  modeLine.textContent = modeCopy(s)
+  modeLine.className = 'mode' + (s.mode === 'offline' || s.mode === 'snapshot' ? ' sim' : '')
+  const joinTrouble = /could not join|not responding|not reachable/i.test(s.phase || '')
+  const phase = document.getElementById('phase')
+  phase.textContent = (s.phase || '') + speedCopy(s)
+  phase.className = 'phase' + (joinTrouble ? ' bad' : '')
   // Any timed-out or failed simulator call in the recent trace, or a person whose last action failed.
   const timingOut = (s.trace || []).slice(-12).some((t) => !t.ok) || (s.patients || []).some((p) => p.error && p.flow !== 'home')
-  document.getElementById('warn').style.display = timingOut ? '' : 'none'
+  document.getElementById('warn').style.display = timingOut || joinTrouble ? '' : 'none'
   const c = s.counters
   const ppl = s.patients
-  layoutLane('laneAgent', ppl, (p) => p.flow, (p) => p.bed, W, s.simNow, true)
+  const arch = s.archive || {}
+  const P = s.params
+  const stay = P.stayMinutes || [0, 0]
+  document.getElementById('facts').innerHTML =
+    '<b>' + Number(s.arrivals) + '</b> arrivals · Homeward: <b>' + Number(c.home) + '</b> home (' + Number(c.homeFromWard) + ' from the ward), median door-to-home <b>' + (c.medianDoorToHomeHours === null ? ', ' : num(c.medianDoorToHomeHours, 1) + ' h') + '</b>' +
+    ' · Today&#39;s ward: <b>' + Number(c.modelHome) + '</b> home' + (c.modelForcedHome ? ' (<span class="early">' + Number(c.modelForcedHome) + ' sent home early, items outstanding</span>)' : '') +
+    ' · bed-hours saved vs today&#39;s ward: <b>' + num(c.bedHoursSaved, 1) + '</b>' + (Number(s.errors) ? ' · ' + Number(s.errors) + ' failed actions, retried' : '')
+  document.getElementById('assumed').textContent =
+    'Real: every move is an action on the record and every checklist item is verified by re-reading the service. Assumed: nobody in the simulator gets better on their own, so treatment before "medically fit" is a seeded ' +
+    stay[0] + '-' + stay[1] + ' min stay; acuity 1-2 are admitted and ' + Math.round(P.admitShareAcuity3 * 100) + '% of acuity 3; ' + W + ' beds in both wards; arrivals ' +
+    (s.mode === 'offline' || s.recordedMode === 'offline' ? 'generated locally at about ' + (s.arrivalsPerHour || 7) + ' per sim-hour' : 'come from the simulator, about 6-8 per sim-hour') +
+    "; today's ward is the illustrative manual-working model (src/story/baseline.ts) and frees a bed at the next ward round once someone has waited " + P.modelMaxWaitMinutes + ' min' +
+    (s.drafts === 'model' ? '; letters drafted by the model.' : '; letters are the canned draft.')
+  layoutLane('laneAgent', ppl, (p) => p.flow, (p) => p.bed, W, s.simNow, true, undefined, arch.home)
   const m = s.model.people
-  layoutLane('laneModel', ppl, (p) => (m[p.attendanceId] || { stage: p.flow }).stage, (p) => (m[p.attendanceId] || {}).bed, W, s.simNow, false, (p) => (m[p.attendanceId] || {}).forced)
+  layoutLane('laneModel', ppl, (p) => (m[p.attendanceId] || { stage: p.flow }).stage, (p) => (m[p.attendanceId] || {}).bed, W, s.simNow, false, (p) => (m[p.attendanceId] || {}).forced, arch.modelHome)
   document.getElementById('miniAgent').innerHTML = '<span>beds <b>' + c.occupied + '/' + W + '</b></span><span>waiting for a bed <b>' + c.waitingForBed + '</b></span><span>home <b>' + c.home + '</b></span>'
   document.querySelectorAll('#speed button').forEach((b) => b.classList.toggle('on', Number(b.dataset.step) === s.params.stepMinutes))
   document.getElementById('miniModel').innerHTML = '<span>beds <b>' + c.modelOccupied + '/' + W + '</b></span><span>waiting for a bed <b>' + c.modelWaitingForBed + '</b></span><span>home <b>' + c.modelHome + '</b>' + (c.modelForcedHome ? ' <span class="early">· ' + c.modelForcedHome + ' sent home early, items outstanding</span>' : '') + '</span>'
 }
-async function tick() { try { render(await (await fetch('/state')).json()) } catch {} }
+async function tick() {
+  try {
+    const r = await fetch('/state')
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    const s = await r.json()
+    if (!s || !s.counters) throw new Error(s && s.error ? s.error : 'bad state')
+    missedPolls = 0
+    render(s)
+  } catch (err) {
+    missedPolls++
+    if (missedPolls >= 3) {
+      const phase = document.getElementById('phase')
+      phase.textContent = 'Screen not reachable: the flow process is not answering (' + missedPolls + ' polls, ' + String(err && err.message ? err.message : err) + '). Has it stopped?'
+      phase.className = 'phase bad'
+      document.getElementById('warn').style.display = ''
+    }
+  }
+}
 async function togglePause() { await fetch('/pause', { method: 'POST' }); tick() }
 async function setSpeed(step) { await fetch('/speed?step=' + step, { method: 'POST' }); tick() }
 window.addEventListener('resize', () => { if (last) render(last) })
