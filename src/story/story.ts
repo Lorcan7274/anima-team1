@@ -59,22 +59,23 @@ export interface Story {
 }
 
 const HOUR = 3_600_000
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
 function agentLane(row: PatientRow): Lane {
-  const items: LaneItem[] = row.items.map((i: ChecklistItem) => ({
+  const items: LaneItem[] = (row.items ?? []).map((i: ChecklistItem) => ({
     id: i.id,
     kind: kindOf(i),
     owner: i.owner,
-    doneAt: i.verification?.passed ? i.verification.atSimTime : null,
+    doneAt: i.verification?.passed && finite(i.verification.atSimTime) ? i.verification.atSimTime : null,
     state: i.state,
     note: i.verification?.observed ?? i.humanReason ?? i.proposedAction,
   }))
-  const blocked = row.items.find((i) => i.state === 'blocked_human')
-  return { items, homeAt: row.dischargedAt ?? null, blockedBy: blocked?.id }
+  const blocked = (row.items ?? []).find((i) => i.state === 'blocked_human')
+  return { items, homeAt: finite(row.dischargedAt) ? row.dischargedAt : null, blockedBy: blocked?.id }
 }
 
 /** Counters at an arbitrary sim time t (the UI mirrors this for scrubbing). */
-export function countersAt(patients: StoryPatient[], t: number, now: number): StoryCounters {
+export function countersAt(patients: StoryPatient[], t: number, now: number, fitAt = Number.NEGATIVE_INFINITY): StoryCounters {
   const tAgent = Math.min(t, now) // the live lane is only known up to now
   let bedsFreed = 0
   let patientsHomeBaseline = 0
@@ -84,7 +85,8 @@ export function countersAt(patients: StoryPatient[], t: number, now: number): St
     const b = p.baseline.homeAt
     if (a !== null && a <= tAgent) {
       bedsFreed++
-      if (b !== null) saved += Math.max(0, b - a)
+      // A discharge recorded before fit is a data oddity: the saving counts from fit, never from before the story starts.
+      if (b !== null) saved += Math.max(0, b - Math.max(a, fitAt))
     }
     if (b !== null && b <= t) patientsHomeBaseline++
   }
@@ -93,15 +95,17 @@ export function countersAt(patients: StoryPatient[], t: number, now: number): St
 
 /** Sim time the cohort was deemed fit: the board records it; else infer it. */
 export function fitAtOf(board: BoardState): number {
-  if (board.fitAt) return board.fitAt
-  const times = board.patients.flatMap((p) => p.items.map((i) => i.resolution?.atSimTime ?? i.approval?.at ?? 0)).filter(Boolean)
-  return times.length ? Math.min(...times) : board.simNow
+  if (finite(board.fitAt) && board.fitAt > 0) return board.fitAt
+  // Infer it: the earliest action, bounded above by any discharge (nobody goes home before they are fit).
+  const times = (board.patients ?? []).flatMap((p) => [...(p.items ?? []).map((i) => i.resolution?.atSimTime ?? i.approval?.at ?? 0), p.dischargedAt ?? 0]).filter((t) => finite(t) && t > 0)
+  if (times.length) return Math.min(...times)
+  return finite(board.simNow) ? board.simNow : 0
 }
 
 export function computeStory(board: BoardState, params: BaselineParams = DEFAULT_BASELINE): Story {
   const fitAt = fitAtOf(board)
-  const now = Math.max(board.simNow, fitAt)
-  const patients: StoryPatient[] = board.patients.map((row) => {
+  const now = Math.max(finite(board.simNow) ? board.simNow : fitAt, fitAt)
+  const patients: StoryPatient[] = (board.patients ?? []).map((row) => {
     const b = baselineFor(row, fitAt, params)
     return {
       patientId: row.patientId,
@@ -122,6 +126,6 @@ export function computeStory(board: BoardState, params: BaselineParams = DEFAULT
     horizon: Math.max(now, latestModel),
     params,
     patients,
-    counters: countersAt(patients, now, now),
+    counters: countersAt(patients, now, now, fitAt),
   }
 }

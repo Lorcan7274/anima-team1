@@ -29,7 +29,7 @@ export type ItemKind =
 
 /** Item kind from the stable id suffix (the same convention resolve.ts uses). */
 export function kindOf(item: Pick<ChecklistItem, 'id'>): ItemKind {
-  const id = item.id.toLowerCase()
+  const id = String(item.id ?? '').toLowerCase()
   for (const k of ['clinical-hold', 'medicines', 'bloods', 'device', 'visit', 'summary', 'follow-up', 'care-package'] as const) {
     if (id.endsWith(`-${k}`)) return k
   }
@@ -117,11 +117,13 @@ export function seededRandom(seed: string): () => number {
 const MIN = 60_000
 
 /** Build the manual-ward timeline for one patient's checklist. */
-export function baselineFor(row: PatientRow, fitAt: number, params: BaselineParams = DEFAULT_BASELINE): BaselineTimeline {
+export function baselineFor(row: PatientRow, fitAtIn: number, params: BaselineParams = DEFAULT_BASELINE): BaselineTimeline {
+  // A non-finite fit time would make every number below NaN; the timeline is relative, so 0 is a safe origin.
+  const fitAt = Number.isFinite(fitAtIn) ? fitAtIn : 0
   const done = new Map<ItemKind, number | null>()
   const out: BaselineItem[] = []
   // Resolve in dependency order: repeat until every item is placed.
-  const pending = [...row.items]
+  const pending = [...(row.items ?? [])]
   let guard = 0
   while (pending.length && guard++ < 50) {
     for (let i = 0; i < pending.length; i++) {
@@ -141,7 +143,7 @@ export function baselineFor(row: PatientRow, fitAt: number, params: BaselinePara
         continue
       }
       const startAt = Math.max(fitAt, ...(depTimes as number[]))
-      const poll = (params.pollMinutes[item.owner] ?? 480) * MIN
+      const poll = Math.max(1, params.pollMinutes[item.owner] ?? 480) * MIN
       const rand = seededRandom(`${row.patientId}:${item.id}`)
       // Polls happen on the team's own grid, anchored at fitAt.
       let k = Math.floor((startAt - fitAt) / poll) + 1
@@ -161,7 +163,7 @@ export function baselineFor(row: PatientRow, fitAt: number, params: BaselinePara
   let homeAt: number | null = null
   if (!never && out.length) {
     const last = Math.max(...out.map((x) => x.doneAt as number))
-    const round = params.wardRoundMinutes * MIN
+    const round = Math.max(1, params.wardRoundMinutes) * MIN
     homeAt = fitAt + Math.ceil((last - fitAt) / round) * round
     if (homeAt <= last) homeAt += round
   }
