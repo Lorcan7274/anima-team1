@@ -117,14 +117,23 @@ curl -X POST http://127.0.0.1:4680/api/keys -H 'content-type: application/json' 
 One page served by `node:http` on `localhost:4600`, polling `/state`:
 
 - **Mode strip.** Says whether the run used the shared simulator, the local stand-in
-  (and at which origin), or a saved snapshot.
-- **Left, the work.** KPI tiles (click for detail), a card per patient with the
-  barrier dependency graph, click any task for its story: record evidence, plan and
-  approval, every call the agent made to the owning service, drafting provenance
-  (model vs fallback), independent verification, escalation.
-- **Right rail.** Open items per service and the live wire trace.
-- **Receipt.** Each patient card downloads a consolidated Markdown discharge
-  coordination record (`GET /receipt?patient=…`).
+  (and at which origin), or a saved snapshot; the same statement heads the receipt.
+- **Left, the ward.** Search and the patient list; each row says who still needs a
+  person.
+- **The discharge plan, per patient.** The route from hospital to home as five gates
+  (clinical readiness, medicines, monitoring, support, handover), each red, amber,
+  green or empty, with a plain statement of what blocks the route and why; the
+  staff approval button, *What the agent did* (the exact steps per action and the
+  wire trace of every request), and the *Receipt*.
+- **Work required.** Every checklist item with its record evidence, plan, approval,
+  the calls made to the owning service, drafting provenance (model, fallback or
+  clinician), the independent verification, and the escalation handover for items
+  only a person can clear.
+- **Discharge pack.** Medicines and key results read from the record, each naming
+  its source, and the seven-section discharge letter, drafted by the agent and
+  editable by the responsible clinician; saved sections are what gets sent.
+- **Receipt.** Each patient downloads a consolidated Markdown discharge coordination
+  record (`GET /receipt?patient=…`).
 
 ### The second screen: the whole ward (`scripts/flow-sim.ts`)
 
