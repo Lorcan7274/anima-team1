@@ -1,6 +1,5 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import type { BoardState, ChecklistItem } from '../src/orchestrator/model.ts'
 import { isSettled } from '../src/orchestrator/model.ts'
 import { approveAll, clearHold, readyForDischarge } from '../src/orchestrator/run.ts'
@@ -63,12 +62,6 @@ test('isSettled: verified and human states are settled; working states are not',
   assert.equal(isSettled(item('x', 'proposed')), false)
   assert.equal(isSettled(item('x', 'approved')), false)
   assert.equal(isSettled(item('x', 'awaiting_verification')), false)
-})
-
-test('.env.example contains no real-looking secrets', () => {
-  const text = readFileSync(new URL('../.env.example', import.meta.url), 'utf8')
-  assert.doesNotMatch(text, /sim_[0-9a-f]{20,}/, 'sim team key must be a placeholder')
-  assert.doesNotMatch(text, /sk-[A-Za-z0-9_-]{20,}/, 'OpenAI key must never appear')
 })
 
 test('joinWorld retries /api/keys when the simulator does not answer, and never on a client error', { timeout: 30_000 }, async () => {

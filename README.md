@@ -49,11 +49,16 @@ Node 22.18 or newer; the backend runs `.ts` files directly (no build step).
 
 ```bash
 npm install                # typescript for typecheck + @animahealth/adk, openai, zod
-cp .env.example .env       # optional: OPENAI_API_KEY for model drafts; SIM_ORIGIN and SIM_KEY only matter with --live
 ```
 
-Without `OPENAI_API_KEY` every model call falls back to a canned draft and the UI
-labels it as such, nothing silently pretends to be the model.
+Nothing else is needed for the default run on the stand-in. Optional environment
+variables, exported or put in a `.env` file in the repo root (git-ignored):
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENAI_API_KEY` | Lets the model draft the letters, barrier proposals and handovers. Without it every model call falls back to a canned draft and the UI labels it as such, nothing silently pretends to be the model. |
+| `OPENAI_MODEL` | Overrides the model (default `gpt-5.6-luna`). |
+| `SIM_ORIGIN`, `SIM_KEY` | Base URL and team API key of a real simulator, read only with `--live`. |
 
 ## Run the demo
 
@@ -191,7 +196,6 @@ open. GitHub Actions runs typecheck and the suite on every push and pull request
 ## Layout
 
 ```
-discharge-orchestrator-brief.md   the design brief: mission, API mechanics, checklist
 scripts/demo-discharge.ts         the demo runner (flags above)
 scripts/local-sim.ts              the simulator stand-in as a standalone server
 scripts/serve-fallback.ts         offline UI from a snapshot

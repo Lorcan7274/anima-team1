@@ -4,7 +4,7 @@
  * This is the meeting point for all workstreams (detectors, resolvers/verifiers,
  * UI, demo scripting), change it by agreement, everything depends on it.
  *
- * Core rules (see discharge-orchestrator-brief.md):
+ * Core rules:
  * - Orchestration state lives HERE, app-side, keyed by sim resourceId.
  *   The sim is the system of record for clinical facts only.
  * - A verifier only ever checks the resource its resolver created.

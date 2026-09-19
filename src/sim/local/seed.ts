@@ -1,10 +1,9 @@
 /**
- * The seeded demo world, following discharge-orchestrator-brief.md: the same
- * eight hospital attendances a fresh NHS-SIM world starts with, Amira Khan's
- * record with the facts the brief verified analyte by analyte, Eleanor Chen's
- * community blocker, thin records for everyone else, and the traps the
- * verifier rule exists for (an old sent discharge summary, an old completed
- * visit, an old open GP task).
+ * The seeded demo world: the same eight hospital attendances a fresh NHS-SIM
+ * world starts with, Amira Khan's record with the facts verified on the real
+ * simulator analyte by analyte, Eleanor Chen's community blocker, thin records
+ * for everyone else, and the traps the verifier rule exists for (an old sent
+ * discharge summary, an old completed visit, an old open GP task).
  *
  * Everything here is fictional and synthetic. Ids follow the shared
  * simulator's shapes (r-N for records, hospital-attendance-seed-N for the

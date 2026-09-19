@@ -34,7 +34,3 @@ jobs:
 
       - name: Test
         run: npm test
-
-      - name: Secrets never land in the example env
-        run: |
-          ! grep -E 'sim_[0-9a-f]{20,}|sk-[A-Za-z0-9_-]{20,}' .env.example
